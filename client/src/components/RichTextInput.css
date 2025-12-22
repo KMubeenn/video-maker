@@ -1,13 +1,13 @@
 .rich-text-input {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0;
 }
 
 .rich-text-label {
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 700;
-  color: #333;
-  margin-bottom: 0.5rem;
+  color: #e0e0e0;
+  margin-bottom: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.8px;
 }
@@ -16,9 +16,9 @@
   display: flex;
   gap: 1.5rem;
   padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border: 2px solid #dee2e6;
-  border-radius: 12px 12px 0 0;
+  background: #0f0f0f;
+  border: 1px solid #333;
+  border-radius: 6px 6px 0 0;
   border-bottom: none;
 }
 
@@ -29,89 +29,92 @@
 }
 
 .toolbar-label {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  color: #666;
+  color: #888;
   margin-right: 0.25rem;
 }
 
 .toolbar-btn {
-  padding: 0.4rem 0.8rem;
-  border: 2px solid transparent;
-  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #444;
+  border-radius: 4px;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-width: 32px;
+  min-width: 30px;
 }
 
 .toolbar-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border-color: #555;
 }
 
 .toolbar-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .color-btn {
-  border-width: 2px;
+  border-width: 1px;
   font-family: Impact, "Arial Black", sans-serif;
 }
 
 .size-btn {
-  background: white;
-  border-color: #dee2e6;
-  color: #495057;
+  background: #1a1a1a;
+  border-color: #444;
+  color: #888;
 }
 
 .size-btn:hover:not(:disabled) {
-  background: #f8f9fa;
-  border-color: #adb5bd;
+  background: #222;
+  border-color: #555;
+  color: #aaa;
 }
 
 .rich-text-editor {
-  min-height: 60px;
-  padding: 1rem;
-  border: 2px solid #dee2e6;
-  border-radius: 0 0 12px 12px;
-  background: white;
-  font-size: 1rem;
+  min-height: 50px;
+  padding: 0.85rem 1rem;
+  border: 1px solid #333;
+  border-radius: 0 0 6px 6px;
+  background: #1a1a1a;
+  font-size: 0.95rem;
   font-family: "Inter", sans-serif;
   outline: none;
   transition: border-color 0.2s ease;
+  color: #e0e0e0;
 }
 
 .rich-text-editor:focus {
-  border-color: #f093fb;
-  box-shadow: 0 0 0 3px rgba(240, 147, 251, 0.1);
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
 }
 
 .rich-text-editor:empty:before {
   content: attr(data-placeholder);
-  color: #adb5bd;
+  color: #555;
   font-style: italic;
 }
 
 .rich-text-preview {
-  margin-top: 1rem;
-  padding: 1rem;
+  margin-top: 0.75rem;
+  padding: 0.85rem;
   background: #000;
-  border-radius: 12px;
-  min-height: 50px;
+  border-radius: 6px;
+  min-height: 45px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: Impact, "Arial Black", sans-serif;
   text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+  border: 1px solid #222;
 }
 
 .rich-text-preview:empty:before {
   content: "Preview will appear here...";
-  color: rgba(255, 255, 255, 0.3);
-  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 0.8rem;
   font-family: "Inter", sans-serif;
   font-style: italic;
 }
