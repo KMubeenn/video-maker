@@ -83,3 +83,184 @@ export function concatenateVideos(
       .run();
   });
 }
+
+export interface RankingVideoInput {
+  filePath: string;
+  title: string;
+  rank: number;
+}
+
+export interface RankingVideoOptions {
+  mainTitle: string;
+  videos: RankingVideoInput[];
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Create a ranking video with main title and individual video titles
+ */
+export async function createRankingVideo(
+  options: RankingVideoOptions,
+  outputFilename: string
+): Promise<string> {
+  const outputsDir = path.join("outputs");
+  if (!fs.existsSync(outputsDir)) {
+    fs.mkdirSync(outputsDir, { recursive: true });
+  }
+
+  const finalOutputPath = path.join(outputsDir, outputFilename);
+  const tempDir = path.join(outputsDir, `temp-${Date.now()}`);
+
+  // Create temp directory
+  console.log(`Creating temp directory: ${tempDir}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  if (!fs.existsSync(tempDir)) {
+    throw new Error(`Failed to create temp directory: ${tempDir}`);
+  }
+  console.log(`Temp directory created successfully`);
+
+  try {
+    const width = options.width || 1080;
+    const height = options.height || 1920;
+    const processedVideos: string[] = [];
+    const totalVideos = options.videos.length;
+
+    // Layout constants
+    const titleHeight = 200; // Height reserved for title at top
+    const videoHeight = height - titleHeight; // Video goes below title
+    const rankingItemHeight = 200; // Fixed spacing between ranking items
+
+    // Calculate starting Y position to center rankings vertically
+    const totalRankingHeight = totalVideos * rankingItemHeight;
+    const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
+
+    // Font paths - change these to use different fonts
+    // Common fonts: Arial.ttf, arialbd.ttf (bold), impact.ttf, calibri.ttf, etc.
+    const titleFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for main title
+    const rankingFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for rankings
+
+    for (const video of options.videos) {
+      const inputPath = path.resolve(video.filePath);
+      const outputPath = path.join(tempDir, `processed-${video.rank}.mp4`);
+
+      // Escape single quotes in text
+      const escapeText = (text: string) => text.replace(/'/g, "\\'");
+
+      const mainTitleText = escapeText(options.mainTitle);
+
+      // Build filters
+      const filters: string[] = [];
+
+      // 1. Scale video to fill full width (may crop top/bottom)
+      filters.push(
+        `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
+      );
+
+      // 2. Crop to exact size if video is larger after scaling
+      filters.push(
+        `crop=${width}:${videoHeight}:(iw-${width})/2:(ih-${videoHeight})/2`
+      );
+
+      // 3. Pad to full canvas - video positioned below title area
+      filters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
+
+      // 4. Add main title at the top center with background box
+      filters.push(
+        `drawtext=fontfile='${titleFont}':text='${mainTitleText}':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=90:box=1:boxcolor=black@0.6:boxborderw=12`
+      );
+
+      // 5. Add all ranking numbers on the left (centered vertically)
+      for (let i = 0; i < totalVideos; i++) {
+        const rankNum = i + 1;
+        const yPos = rankingStartY + i * rankingItemHeight;
+        const videoInfo = options.videos[i];
+        const videoTitle = escapeText(videoInfo?.title || "");
+
+        // Determine color - yellow for current video, white for others
+        const numColor = rankNum === video.rank ? "yellow" : "white";
+        const titleColor = rankNum === video.rank ? "yellow" : "white";
+
+        // Add rank number (always visible)
+        filters.push(
+          `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}`
+        );
+
+        // Add title text (only show for current and previous videos)
+        if (rankNum <= video.rank) {
+          filters.push(
+            `drawtext=fontfile='${rankingFont}':text='${videoTitle}':fontsize=48:fontcolor=${titleColor}:x=90:y=${
+              yPos + 4
+            }`
+          );
+        }
+      }
+
+      console.log(`Processing video ${video.rank}...`);
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(inputPath)
+          .videoFilters(filters)
+          .outputOptions([
+            "-c:v libx264",
+            "-preset medium",
+            "-crf 23",
+            "-c:a aac",
+            "-b:a 128k",
+          ])
+          .output(outputPath)
+          .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
+          .on("end", () => {
+            console.log(`Successfully processed video ${video.rank}`);
+            processedVideos.push(outputPath);
+            resolve();
+          })
+          .on("error", (err) => {
+            console.error(`Error processing video ${video.rank}:`, err);
+            reject(err);
+          })
+          .run();
+      });
+    }
+
+    // Create file list for concatenation
+    const fileListPath = path.join(tempDir, "filelist.txt");
+    const fileListContent = processedVideos
+      .map((p) => `file '${path.resolve(p).replace(/\\/g, "/")}'`)
+      .join("\n");
+    fs.writeFileSync(fileListPath, fileListContent);
+
+    console.log("File list content:");
+    console.log(fileListContent);
+
+    // Concatenate videos using fluent-ffmpeg
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg()
+        .input(fileListPath)
+        .inputOptions(["-f concat", "-safe 0"])
+        .outputOptions(["-c copy"])
+        .output(finalOutputPath)
+        .on("start", (cmd) => console.log("Concatenating videos:", cmd))
+        .on("end", () => {
+          console.log(`Ranking video created: ${finalOutputPath}`);
+          resolve();
+        })
+        .on("error", (err) => {
+          console.error("Concatenation error:", err);
+          reject(err);
+        })
+        .run();
+    });
+
+    // Clean up temp folder
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
+    return finalOutputPath;
+  } catch (error) {
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
+}
