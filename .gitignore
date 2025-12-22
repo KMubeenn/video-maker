@@ -1,0 +1,16 @@
+# Node
+node_modules/
+npm-debug.log
+
+# Vite
+dist/
+
+# Express
+uploads/
+outputs/
+
+# TypeScript
+*.tsbuildinfo
+
+# Optional
+.env
