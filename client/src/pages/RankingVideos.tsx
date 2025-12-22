@@ -3,11 +3,14 @@ import {
   createRankingVideo,
   generateFullPreview,
   type RankingVideoInput,
+  type TextSegment,
 } from "../api/video.api";
+import { RichTextInput } from "../components/RichTextInput";
 import "./RankingVideos.css";
 
-interface VideoInput extends RankingVideoInput {
+interface VideoInput extends Omit<RankingVideoInput, "title"> {
   id: number;
+  title: TextSegment[]; // Using TextSegment[] for formatted titles
 }
 
 interface RankingResult {
@@ -29,7 +32,7 @@ interface PreviewState {
 }
 
 interface PreviewProps {
-  mainTitle: string;
+  mainTitle: TextSegment[];
   videos: VideoInput[];
   width: number;
   height: number;
@@ -59,7 +62,12 @@ function VideoPreviewPanel({
     }
   };
 
-  const allVideosReady = mainTitle && videos.every((v) => v.url && v.title);
+  const allVideosReady =
+    mainTitle.length > 0 &&
+    mainTitle[0].text.trim() !== "" &&
+    videos.every(
+      (v) => v.url && v.title.length > 0 && v.title[0].text.trim() !== ""
+    );
 
   return (
     <div className="live-preview-section">
@@ -122,9 +130,12 @@ function VideoPreviewPanel({
               <div className="preview-empty">
                 <span className="empty-icon">📹</span>
                 <span className="empty-text">
-                  {!mainTitle
+                  {mainTitle.length === 0 || mainTitle[0].text.trim() === ""
                     ? "Enter main title first"
-                    : videos.some((v) => !v.title)
+                    : videos.some(
+                        (v) =>
+                          v.title.length === 0 || v.title[0].text.trim() === ""
+                      )
                     ? "Enter all video titles"
                     : "Add all video URLs"}
                 </span>
@@ -143,11 +154,13 @@ function VideoPreviewPanel({
 }
 
 export default function RankingVideos() {
-  const [mainTitle, setMainTitle] = useState("");
+  const [mainTitle, setMainTitle] = useState<TextSegment[]>([
+    { text: "", color: "white", fontSize: 52 },
+  ]);
   const [videoCount, setVideoCount] = useState<2 | 3 | 4>(2);
   const [videos, setVideos] = useState<VideoInput[]>([
-    { id: 1, url: "", title: "" },
-    { id: 2, url: "", title: "" },
+    { id: 1, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
+    { id: 2, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
   ]);
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1920);
@@ -166,7 +179,13 @@ export default function RankingVideos() {
     setVideoCount(count);
     const newVideos: VideoInput[] = [];
     for (let i = 0; i < count; i++) {
-      newVideos.push(videos[i] || { id: i + 1, url: "", title: "" });
+      newVideos.push(
+        videos[i] || {
+          id: i + 1,
+          url: "",
+          title: [{ text: "", color: "white", fontSize: 48 }],
+        }
+      );
     }
     setVideos(newVideos);
     setError("");
@@ -178,10 +197,14 @@ export default function RankingVideos() {
   const handleVideoChange = (
     index: number,
     field: "url" | "title",
-    value: string
+    value: string | TextSegment[]
   ) => {
     const newVideos = [...videos];
-    newVideos[index] = { ...newVideos[index], [field]: value };
+    if (field === "url") {
+      newVideos[index] = { ...newVideos[index], url: value as string };
+    } else {
+      newVideos[index] = { ...newVideos[index], title: value as TextSegment[] };
+    }
     setVideos(newVideos);
     setError("");
     // Clear preview when video data changes
@@ -190,7 +213,8 @@ export default function RankingVideos() {
 
   // Generate full preview
   const handleGeneratePreview = async () => {
-    if (!mainTitle.trim()) {
+    const mainTitleText = mainTitle[0]?.text || "";
+    if (!mainTitleText.trim()) {
       setPreviewState({
         isGenerating: false,
         videoUrl: null,
@@ -199,7 +223,7 @@ export default function RankingVideos() {
       return;
     }
 
-    const emptyTitles = videos.filter((v) => !v.title.trim());
+    const emptyTitles = videos.filter((v) => !v.title[0]?.text.trim());
     if (emptyTitles.length > 0) {
       setPreviewState({
         isGenerating: false,
@@ -251,12 +275,13 @@ export default function RankingVideos() {
 
   const handleSubmit = async () => {
     // Validation
-    if (!mainTitle.trim()) {
+    const mainTitleText = mainTitle[0]?.text || "";
+    if (!mainTitleText.trim()) {
       setError("Please provide a main title for your ranking video");
       return;
     }
 
-    const emptyTitles = videos.filter((v) => !v.title.trim());
+    const emptyTitles = videos.filter((v) => !v.title[0]?.text.trim());
     if (emptyTitles.length > 0) {
       setError("Please provide titles for all videos");
       return;
@@ -339,13 +364,11 @@ export default function RankingVideos() {
 
         {/* Main Title Input */}
         <div className="main-title-section">
-          <label className="section-label">Main Video Title</label>
-          <input
-            type="text"
-            className="main-title-input"
-            placeholder="e.g., Top 3 Most Viral TikToks of 2024"
+          <RichTextInput
+            label="Main Video Title"
             value={mainTitle}
-            onChange={(e) => setMainTitle(e.target.value)}
+            onChange={setMainTitle}
+            placeholder="e.g., Top 3 Most Viral TikToks of 2024"
             disabled={loading}
           />
         </div>
@@ -392,14 +415,12 @@ export default function RankingVideos() {
                     disabled={loading}
                   />
                 </div>
-                <input
-                  type="text"
-                  className="title-input"
-                  placeholder={`Video ${index + 1} Title`}
+                <RichTextInput
                   value={video.title}
-                  onChange={(e) =>
-                    handleVideoChange(index, "title", e.target.value)
+                  onChange={(segments) =>
+                    handleVideoChange(index, "title", segments)
                   }
+                  placeholder={`Video ${index + 1} Title`}
                   disabled={loading}
                 />
               </div>

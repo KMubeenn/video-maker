@@ -7,15 +7,16 @@ import {
 import {
   createRankingVideo,
   generateRankingPreview,
+  type TextSegment,
 } from "../services/ffmpeg.service.js";
 
 export interface VideoRankInput {
   url: string;
-  title: string;
+  title: TextSegment[]; // Changed to TextSegment[]
 }
 
 export interface CreateRankingRequest {
-  mainTitle: string;
+  mainTitle: TextSegment[]; // Changed to TextSegment[]
   videos: VideoRankInput[];
   width?: number;
   height?: number;
@@ -27,7 +28,8 @@ export async function createRanking(req: Request, res: Response) {
       req.body as CreateRankingRequest;
 
     // Validate input
-    if (!mainTitle || !mainTitle.trim()) {
+    const mainTitleText = mainTitle[0]?.text || "";
+    if (!mainTitleText.trim()) {
       return res.status(400).json({ error: "Main title is required" });
     }
 
@@ -44,7 +46,11 @@ export async function createRanking(req: Request, res: Response) {
     // Validate each video
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i];
-      if (!video || !video.url || !video.title) {
+      if (!video) {
+        return res.status(400).json({ error: `Video ${i + 1} is missing` });
+      }
+      const videoTitleText = video.title[0]?.text || "";
+      if (!video.url || !videoTitleText.trim()) {
         return res
           .status(400)
           .json({ error: `Video ${i + 1} must have both url and title` });
@@ -62,7 +68,9 @@ export async function createRanking(req: Request, res: Response) {
     // Prepare ranking video inputs
     const rankingInputs = downloadedVideos.map((downloaded, index) => ({
       filePath: downloaded.filePath,
-      title: videos[index]?.title || `Video ${index + 1}`,
+      title: videos[index]?.title || [
+        { text: `Video ${index + 1}`, color: "white", fontSize: 48 },
+      ],
       rank: index + 1,
     }));
 
@@ -111,14 +119,15 @@ export async function createRanking(req: Request, res: Response) {
 export async function generateFullPreview(req: Request, res: Response) {
   try {
     const { mainTitle, videos, width, height } = req.body as {
-      mainTitle: string;
+      mainTitle: TextSegment[];
       videos: VideoRankInput[];
       width?: number;
       height?: number;
     };
 
     // Validation (same as createRanking)
-    if (!mainTitle || !mainTitle.trim()) {
+    const mainTitleText = mainTitle[0]?.text || "";
+    if (!mainTitleText.trim()) {
       return res.status(400).json({ error: "Main title is required" });
     }
 
@@ -135,7 +144,11 @@ export async function generateFullPreview(req: Request, res: Response) {
     // Validate each video
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i];
-      if (!video || !video.url || !video.title) {
+      if (!video) {
+        return res.status(400).json({ error: `Video ${i + 1} is missing` });
+      }
+      const videoTitleText = video.title[0]?.text || "";
+      if (!video.url || !videoTitleText.trim()) {
         return res
           .status(400)
           .json({ error: `Video ${i + 1} must have both url and title` });
@@ -153,7 +166,9 @@ export async function generateFullPreview(req: Request, res: Response) {
     // Prepare ranking video inputs
     const rankingInputs = downloadedVideos.map((downloaded, index) => ({
       filePath: downloaded.filePath,
-      title: videos[index]?.title || `Video ${index + 1}`,
+      title: videos[index]?.title || [
+        { text: `Video ${index + 1}`, color: "white", fontSize: 48 },
+      ],
       rank: index + 1,
     }));
 

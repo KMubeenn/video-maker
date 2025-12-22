@@ -2,6 +2,58 @@ import ffmpeg from "fluent-ffmpeg";
 import path from "path";
 import fs from "fs";
 
+// Text segment for rich text formatting
+export interface TextSegment {
+  text: string;
+  color?: string;
+  fontSize?: number;
+}
+
+// Convert formatted text to FFmpeg drawtext filters
+function createFormattedTextFilters(
+  segments: TextSegment[] | string,
+  baseX: number | string,
+  baseY: number,
+  fontFile: string,
+  defaultColor: string = "white",
+  defaultFontSize: number = 52
+): string[] {
+  // If it's a plain string, convert to single segment
+  const textSegments =
+    typeof segments === "string"
+      ? [{ text: segments, color: defaultColor, fontSize: defaultFontSize }]
+      : segments;
+
+  const filters: string[] = [];
+  let currentX = baseX;
+
+  for (const [index, segment] of textSegments.entries()) {
+    const escText = segment.text.replace(/'/g, "\\'");
+    const color = segment.color || defaultColor;
+    const fontSize = segment.fontSize || defaultFontSize;
+
+    // For centered text, we need to calculate total width first
+    if (typeof baseX === "string" && baseX.includes("text_w")) {
+      // Center the whole text block
+      const xPos = index === 0 ? baseX : `${currentX}+text_w`;
+      filters.push(
+        `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${baseY}`
+      );
+      currentX = xPos;
+    } else {
+      // Left-aligned or absolute positioning
+      const xPos = index === 0 ? currentX : `${currentX}`;
+      filters.push(
+        `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${baseY}`
+      );
+      // Update x position for next segment (current + text width)
+      currentX = `${xPos}+text_w`;
+    }
+  }
+
+  return filters;
+}
+
 export function addTitleToVideo(
   inputPath: string,
   title: string,
@@ -86,12 +138,12 @@ export function concatenateVideos(
 
 export interface RankingVideoInput {
   filePath: string;
-  title: string;
+  title: TextSegment[]; // Changed to TextSegment[]
   rank: number;
 }
 
 export interface RankingVideoOptions {
-  mainTitle: string;
+  mainTitle: TextSegment[]; // Changed to TextSegment[]
   videos: RankingVideoInput[];
   width?: number;
   height?: number;
@@ -145,11 +197,6 @@ export async function createRankingVideo(
       const inputPath = path.resolve(video.filePath);
       const outputPath = path.join(tempDir, `processed-${video.rank}.mp4`);
 
-      // Escape single quotes in text
-      const escapeText = (text: string) => text.replace(/'/g, "\\'");
-
-      const mainTitleText = escapeText(options.mainTitle);
-
       // Build filters
       const filters: string[] = [];
 
@@ -166,17 +213,27 @@ export async function createRankingVideo(
       // 3. Pad to full canvas - video positioned below title area
       filters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
 
-      // 4. Add main title at the top center with background box
-      filters.push(
-        `drawtext=fontfile='${titleFont}':text='${mainTitleText}':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=90:box=1:boxcolor=black@0.6:boxborderw=12`
+      // 4. Add main title at the top center with background box using formatted text
+      const mainTitleFilters = createFormattedTextFilters(
+        options.mainTitle,
+        "(w-text_w)/2",
+        90,
+        titleFont
       );
+      // Add box background to first segment only
+      if (mainTitleFilters.length > 0 && mainTitleFilters[0]) {
+        mainTitleFilters[0] = mainTitleFilters[0].replace(
+          `:y=90`,
+          `:y=90:box=1:boxcolor=black@0.6:boxborderw=12`
+        );
+      }
+      filters.push(...mainTitleFilters);
 
       // 5. Add all ranking numbers on the left (centered vertically)
       for (let i = 0; i < totalVideos; i++) {
         const rankNum = i + 1;
         const yPos = rankingStartY + i * rankingItemHeight;
         const videoInfo = options.videos[i];
-        const videoTitle = escapeText(videoInfo?.title || "");
 
         // Determine color - yellow for current video, white for others
         const numColor = rankNum === video.rank ? "yellow" : "white";
@@ -187,13 +244,17 @@ export async function createRankingVideo(
           `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}`
         );
 
-        // Add title text (only show for current and previous videos)
-        if (rankNum <= video.rank) {
-          filters.push(
-            `drawtext=fontfile='${rankingFont}':text='${videoTitle}':fontsize=48:fontcolor=${titleColor}:x=90:y=${
-              yPos + 4
-            }`
+        // Add title text (only show for current and previous videos) using formatted text
+        if (rankNum <= video.rank && videoInfo) {
+          const videoTitleFilters = createFormattedTextFilters(
+            videoInfo.title,
+            90,
+            yPos + 4,
+            rankingFont,
+            titleColor,
+            48
           );
+          filters.push(...videoTitleFilters);
         }
       }
 
