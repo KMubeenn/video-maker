@@ -1,8 +1,8 @@
 import "./App.css";
-import MergeVideos from "./pages/MergeVideos";
+import RankingVideos from "./pages/RankingVideos";
 
 function App() {
-  return <MergeVideos />;
+  return <RankingVideos />;
 }
 
 export default App;
