@@ -40,3 +40,24 @@ export const createRankingVideo = async (
   });
   return res.data;
 };
+
+export interface PreviewVideoResponse {
+  success: boolean;
+  videoUrl: string;
+  message: string;
+}
+
+export const generateFullPreview = async (
+  mainTitle: string,
+  videos: RankingVideoInput[],
+  width?: number,
+  height?: number
+): Promise<PreviewVideoResponse> => {
+  const res = await axios.post(`${RANKING_API_URL}/generate-preview`, {
+    mainTitle,
+    videos,
+    width,
+    height,
+  });
+  return res.data;
+};

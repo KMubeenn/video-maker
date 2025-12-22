@@ -1,5 +1,9 @@
-import { useState } from "react";
-import { createRankingVideo, type RankingVideoInput } from "../api/video.api";
+import { useState, useRef } from "react";
+import {
+  createRankingVideo,
+  generateFullPreview,
+  type RankingVideoInput,
+} from "../api/video.api";
 import "./RankingVideos.css";
 
 interface VideoInput extends RankingVideoInput {
@@ -17,6 +21,127 @@ interface RankingResult {
   }>;
 }
 
+// Single Preview State
+interface PreviewState {
+  isGenerating: boolean;
+  videoUrl: string | null;
+  error: string | null;
+}
+
+interface PreviewProps {
+  mainTitle: string;
+  videos: VideoInput[];
+  width: number;
+  height: number;
+  previewState: PreviewState;
+  onGeneratePreview: () => void;
+}
+
+function VideoPreviewPanel({
+  mainTitle,
+  videos,
+  width,
+  height,
+  previewState,
+  onGeneratePreview,
+}: PreviewProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Calculate aspect ratio for container
+  const aspectRatio = width / height;
+  const getPreviewStyle = () => {
+    if (aspectRatio > 1) {
+      return { width: "100%", paddingTop: `${(1 / aspectRatio) * 100}%` };
+    } else if (aspectRatio < 1) {
+      return { width: "50%", paddingTop: `${(1 / aspectRatio) * 50}%` };
+    } else {
+      return { width: "70%", paddingTop: "70%" };
+    }
+  };
+
+  const allVideosReady = mainTitle && videos.every((v) => v.url && v.title);
+
+  return (
+    <div className="live-preview-section">
+      <label className="section-label">
+        <span className="live-indicator"></span>
+        Full Preview - Complete FFmpeg Output
+        <span className="preview-dimensions">
+          ({width}×{height})
+        </span>
+      </label>
+
+      <div className="preview-container">
+        <div className="preview-frame" style={getPreviewStyle()}>
+          <div className="preview-content">
+            {previewState.isGenerating ? (
+              <div className="preview-loading">
+                <div className="preview-spinner"></div>
+                <span>Generating full preview with FFmpeg...</span>
+                <span className="preview-note">
+                  Downloading all {videos.length} videos and creating
+                  concatenated output
+                </span>
+              </div>
+            ) : previewState.error ? (
+              <div className="preview-error">
+                <span className="error-icon">⚠️</span>
+                <span>{previewState.error}</span>
+                <button className="retry-btn" onClick={onGeneratePreview}>
+                  Retry
+                </button>
+              </div>
+            ) : previewState.videoUrl ? (
+              <video
+                ref={videoRef}
+                src={previewState.videoUrl}
+                className="preview-video-player"
+                controls
+                autoPlay
+                muted
+                loop
+                key={previewState.videoUrl}
+              />
+            ) : allVideosReady ? (
+              <div className="preview-waiting">
+                <span className="waiting-icon">🎬</span>
+                <span>Ready to generate full preview</span>
+                <span className="preview-note">
+                  This will download {videos.length} video
+                  {videos.length > 1 ? "s" : ""}, add overlays, and concatenate
+                  them
+                </span>
+                <button
+                  className="download-preview-btn"
+                  onClick={onGeneratePreview}
+                >
+                  Generate Full Preview
+                </button>
+              </div>
+            ) : (
+              <div className="preview-empty">
+                <span className="empty-icon">📹</span>
+                <span className="empty-text">
+                  {!mainTitle
+                    ? "Enter main title first"
+                    : videos.some((v) => !v.title)
+                    ? "Enter all video titles"
+                    : "Add all video URLs"}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="preview-hint">
+        👆 This shows the complete final video with all clips concatenated.
+        Generate to see the exact output!
+      </div>
+    </div>
+  );
+}
+
 export default function RankingVideos() {
   const [mainTitle, setMainTitle] = useState("");
   const [videoCount, setVideoCount] = useState<2 | 3 | 4>(2);
@@ -30,6 +155,13 @@ export default function RankingVideos() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<RankingResult | null>(null);
 
+  // Single preview state
+  const [previewState, setPreviewState] = useState<PreviewState>({
+    isGenerating: false,
+    videoUrl: null,
+    error: null,
+  });
+
   const handleVideoCountChange = (count: 2 | 3 | 4) => {
     setVideoCount(count);
     const newVideos: VideoInput[] = [];
@@ -39,6 +171,8 @@ export default function RankingVideos() {
     setVideos(newVideos);
     setError("");
     setResult(null);
+    // Clear preview when changing video count
+    setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
 
   const handleVideoChange = (
@@ -50,6 +184,69 @@ export default function RankingVideos() {
     newVideos[index] = { ...newVideos[index], [field]: value };
     setVideos(newVideos);
     setError("");
+    // Clear preview when video data changes
+    setPreviewState({ isGenerating: false, videoUrl: null, error: null });
+  };
+
+  // Generate full preview
+  const handleGeneratePreview = async () => {
+    if (!mainTitle.trim()) {
+      setPreviewState({
+        isGenerating: false,
+        videoUrl: null,
+        error: "Please enter a main title first",
+      });
+      return;
+    }
+
+    const emptyTitles = videos.filter((v) => !v.title.trim());
+    if (emptyTitles.length > 0) {
+      setPreviewState({
+        isGenerating: false,
+        videoUrl: null,
+        error: "Please enter titles for all videos",
+      });
+      return;
+    }
+
+    const emptyUrls = videos.filter((v) => !v.url.trim());
+    if (emptyUrls.length > 0) {
+      setPreviewState({
+        isGenerating: false,
+        videoUrl: null,
+        error: "Please enter URLs for all videos",
+      });
+      return;
+    }
+
+    setPreviewState({ isGenerating: true, videoUrl: null, error: null });
+
+    try {
+      const response = await generateFullPreview(
+        mainTitle,
+        videos.map((v) => ({ url: v.url, title: v.title })),
+        width,
+        height
+      );
+      setPreviewState({
+        isGenerating: false,
+        videoUrl: response.videoUrl,
+        error: null,
+      });
+    } catch (err: unknown) {
+      const error = err as {
+        response?: { data?: { details?: string; error?: string } };
+      };
+      const errorMessage =
+        error.response?.data?.details ||
+        error.response?.data?.error ||
+        "Failed to generate preview";
+      setPreviewState({
+        isGenerating: false,
+        videoUrl: null,
+        error: errorMessage,
+      });
+    }
   };
 
   const handleSubmit = async () => {
@@ -129,6 +326,16 @@ export default function RankingVideos() {
             Create stunning ranking videos with custom titles and overlays
           </p>
         </div>
+
+        {/* Live Preview Panel */}
+        <VideoPreviewPanel
+          mainTitle={mainTitle}
+          videos={videos}
+          width={width}
+          height={height}
+          previewState={previewState}
+          onGeneratePreview={handleGeneratePreview}
+        />
 
         {/* Main Title Input */}
         <div className="main-title-section">

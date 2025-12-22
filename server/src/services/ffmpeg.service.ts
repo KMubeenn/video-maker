@@ -264,3 +264,122 @@ export async function createRankingVideo(
     throw error;
   }
 }
+
+/**
+ * Generate a preview for a single video with ranking overlays
+ * This creates the exact same output as the final ranking video, but for just one clip
+ */
+export async function generateRankingPreview(
+  inputVideoPath: string,
+  options: {
+    mainTitle: string;
+    videoTitle: string;
+    rank: number;
+    totalVideos: number;
+    allVideoTitles: string[]; // All video titles to show in ranking list
+    width?: number;
+    height?: number;
+  }
+): Promise<string> {
+  const outputsDir = path.join("outputs");
+  if (!fs.existsSync(outputsDir)) {
+    fs.mkdirSync(outputsDir, { recursive: true });
+  }
+
+  const previewsDir = path.join(outputsDir, "previews");
+  if (!fs.existsSync(previewsDir)) {
+    fs.mkdirSync(previewsDir, { recursive: true });
+  }
+
+  const outputFilename = `preview-${options.rank}-${Date.now()}.mp4`;
+  const outputPath = path.join(previewsDir, outputFilename);
+
+  const width = options.width || 1080;
+  const height = options.height || 1920;
+  const totalVideos = options.totalVideos;
+
+  // Layout constants (same as createRankingVideo)
+  const titleHeight = 200;
+  const videoHeight = height - titleHeight;
+  const rankingItemHeight = 200;
+  const totalRankingHeight = totalVideos * rankingItemHeight;
+  const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
+
+  const titleFont = "C\\:/Windows/Fonts/impact.ttf";
+  const rankingFont = "C\\:/Windows/Fonts/impact.ttf";
+
+  // Escape single quotes in text
+  const escapeText = (text: string) => text.replace(/'/g, "\\'");
+  const mainTitleText = escapeText(options.mainTitle);
+
+  // Build filters (exact same as createRankingVideo)
+  const filters: string[] = [];
+
+  // 1. Scale video to fill full width
+  filters.push(
+    `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
+  );
+
+  // 2. Crop to exact size
+  filters.push(
+    `crop=${width}:${videoHeight}:(iw-${width})/2:(ih-${videoHeight})/2`
+  );
+
+  // 3. Pad to full canvas - video positioned below title area
+  filters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
+
+  // 4. Add main title at the top center with background box
+  filters.push(
+    `drawtext=fontfile='${titleFont}':text='${mainTitleText}':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=90:box=1:boxcolor=black@0.6:boxborderw=12`
+  );
+
+  // 5. Add all ranking numbers and titles (same logic as createRankingVideo)
+  for (let i = 0; i < totalVideos; i++) {
+    const rankNum = i + 1;
+    const yPos = rankingStartY + i * rankingItemHeight;
+    const videoTitle = escapeText(options.allVideoTitles[i] || "");
+
+    // Determine color - yellow for current video, white for others
+    const numColor = rankNum === options.rank ? "yellow" : "white";
+    const titleColor = rankNum === options.rank ? "yellow" : "white";
+
+    // Add rank number (always visible)
+    filters.push(
+      `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}`
+    );
+
+    // Add title text (only show for current and previous videos)
+    if (rankNum <= options.rank) {
+      filters.push(
+        `drawtext=fontfile='${rankingFont}':text='${videoTitle}':fontsize=48:fontcolor=${titleColor}:x=90:y=${
+          yPos + 4
+        }`
+      );
+    }
+  }
+
+  console.log(`Generating preview for rank ${options.rank}...`);
+
+  return new Promise<string>((resolve, reject) => {
+    ffmpeg(inputVideoPath)
+      .videoFilters(filters)
+      .outputOptions([
+        "-c:v libx264",
+        "-preset medium",
+        "-crf 23",
+        "-c:a aac",
+        "-b:a 128k",
+      ])
+      .output(outputPath)
+      .on("start", (cmd) => console.log(`FFmpeg preview command: ${cmd}`))
+      .on("end", () => {
+        console.log(`Preview generated successfully: ${outputPath}`);
+        resolve(outputPath);
+      })
+      .on("error", (err) => {
+        console.error(`Error generating preview:`, err);
+        reject(err);
+      })
+      .run();
+  });
+}
