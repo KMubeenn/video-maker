@@ -1,6 +1,7 @@
 import axios from "axios";
 
 const API_URL = "http://localhost:4000/api/video";
+const MERGE_API_URL = "http://localhost:4000/api/merge";
 
 export const createVideo = async (file: File, title: string) => {
   const formData = new FormData();
@@ -11,5 +12,10 @@ export const createVideo = async (file: File, title: string) => {
     headers: { "Content-Type": "multipart/form-data" },
   });
 
+  return res.data;
+};
+
+export const mergeVideos = async (urls: string[]) => {
+  const res = await axios.post(`${MERGE_API_URL}/merge`, { urls });
   return res.data;
 };
