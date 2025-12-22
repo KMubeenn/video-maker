@@ -2,7 +2,6 @@ import type { Request, Response } from "express";
 import {
   downloadVideo,
   downloadMultipleVideos,
-  cleanupFiles,
 } from "../services/downloader.service.js";
 import {
   createRankingVideo,
@@ -37,10 +36,10 @@ export async function createRanking(req: Request, res: Response) {
       return res.status(400).json({ error: "Videos must be an array" });
     }
 
-    if (videos.length < 2 || videos.length > 4) {
+    if (videos.length < 3 || videos.length > 6) {
       return res
         .status(400)
-        .json({ error: "Please provide between 2 and 4 videos" });
+        .json({ error: "Please provide between 3 and 6 videos" });
     }
 
     // Validate each video
@@ -87,9 +86,7 @@ export async function createRanking(req: Request, res: Response) {
       outputFilename
     );
 
-    // Clean up downloaded files
-    console.log("Step 3: Cleaning up temporary files...");
-    cleanupFiles(downloadedVideos.map((v) => v.filePath));
+    // Note: Not cleaning up downloaded files - they are cached for reuse
 
     // Return success response
     res.json({
@@ -135,10 +132,10 @@ export async function generateFullPreview(req: Request, res: Response) {
       return res.status(400).json({ error: "Videos must be an array" });
     }
 
-    if (videos.length < 2 || videos.length > 4) {
+    if (videos.length < 3 || videos.length > 6) {
       return res
         .status(400)
-        .json({ error: "Please provide between 2 and 4 videos" });
+        .json({ error: "Please provide between 3 and 6 videos" });
     }
 
     // Validate each video
@@ -187,9 +184,7 @@ export async function generateFullPreview(req: Request, res: Response) {
       outputFilename
     );
 
-    // Clean up downloaded files
-    console.log("Step 3: Cleaning up temporary files...");
-    cleanupFiles(downloadedVideos.map((v) => v.filePath));
+    // Note: Not cleaning up downloaded files - they are cached for reuse
 
     res.json({
       success: true,

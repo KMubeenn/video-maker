@@ -3,6 +3,7 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import ytdl from "@distube/ytdl-core";
+import { videoCache } from "./cache.service.js";
 
 const execPromise = promisify(exec);
 
@@ -132,7 +133,7 @@ export async function downloadVideo(
 }
 
 /**
- * Download multiple videos sequentially
+ * Download multiple videos sequentially, using cache when available
  */
 export async function downloadMultipleVideos(
   urls: string[]
@@ -146,11 +147,38 @@ export async function downloadMultipleVideos(
     }
 
     try {
+      // Check if video is cached
+      const cachedPath = videoCache.get(url);
+      if (cachedPath) {
+        console.log(`Using cached video for: ${url}`);
+        const platform = detectPlatform(url);
+        results.push({
+          filePath: cachedPath,
+          platform,
+          originalUrl: url,
+        });
+        continue;
+      }
+
+      // Not cached, download it
+      console.log(`Cache miss, downloading: ${url}`);
       const result = await downloadVideo(url, i);
-      results.push(result);
+
+      // Cache the downloaded video
+      videoCache.set(url, result.filePath);
+
+      // Update result to use cached path
+      const cachedPath2 = videoCache.get(url);
+      if (cachedPath2) {
+        results.push({
+          ...result,
+          filePath: cachedPath2,
+        });
+      } else {
+        results.push(result);
+      }
     } catch (error: unknown) {
-      // If one download fails, clean up already downloaded files
-      cleanupFiles(results.map((r) => r.filePath));
+      // If one download fails, don't clean up cache, just throw error
       const err = error as Error;
       throw new Error(
         `Failed to download video ${i + 1}/${urls.length}: ${err.message}`

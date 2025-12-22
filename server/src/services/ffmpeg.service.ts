@@ -265,8 +265,8 @@ export async function createRankingVideo(
           .videoFilters(filters)
           .outputOptions([
             "-c:v libx264",
-            "-preset medium",
-            "-crf 23",
+            "-preset ultrafast", // Changed from 'medium' to 'ultrafast' for faster previews
+            "-crf 28", // Slightly lower quality but much faster (was 23)
             "-c:a aac",
             "-b:a 128k",
           ])

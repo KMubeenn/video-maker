@@ -1,6 +1,5 @@
 import { useState, useRef } from "react";
 import {
-  createRankingVideo,
   generateFullPreview,
   type RankingVideoInput,
   type TextSegment,
@@ -11,17 +10,6 @@ import "./RankingVideos.css";
 interface VideoInput extends Omit<RankingVideoInput, "title"> {
   id: number;
   title: TextSegment[]; // Using TextSegment[] for formatted titles
-}
-
-interface RankingResult {
-  success: boolean;
-  videoUrl: string;
-  message: string;
-  rankings: Array<{
-    rank: number;
-    title: string;
-    url: string;
-  }>;
 }
 
 // Single Preview State
@@ -157,16 +145,15 @@ export default function RankingVideos() {
   const [mainTitle, setMainTitle] = useState<TextSegment[]>([
     { text: "", color: "white", fontSize: 52 },
   ]);
-  const [videoCount, setVideoCount] = useState<2 | 3 | 4>(2);
+  const [videoCount, setVideoCount] = useState<3 | 4 | 5 | 6>(3);
   const [videos, setVideos] = useState<VideoInput[]>([
     { id: 1, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
     { id: 2, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
+    { id: 3, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
   ]);
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1920);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<RankingResult | null>(null);
 
   // Single preview state
   const [previewState, setPreviewState] = useState<PreviewState>({
@@ -175,7 +162,7 @@ export default function RankingVideos() {
     error: null,
   });
 
-  const handleVideoCountChange = (count: 2 | 3 | 4) => {
+  const handleVideoCountChange = (count: 3 | 4 | 5 | 6) => {
     setVideoCount(count);
     const newVideos: VideoInput[] = [];
     for (let i = 0; i < count; i++) {
@@ -189,7 +176,6 @@ export default function RankingVideos() {
     }
     setVideos(newVideos);
     setError("");
-    setResult(null);
     // Clear preview when changing video count
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
@@ -273,65 +259,6 @@ export default function RankingVideos() {
     }
   };
 
-  const handleSubmit = async () => {
-    // Validation
-    const mainTitleText = mainTitle[0]?.text || "";
-    if (!mainTitleText.trim()) {
-      setError("Please provide a main title for your ranking video");
-      return;
-    }
-
-    const emptyTitles = videos.filter((v) => !v.title[0]?.text.trim());
-    if (emptyTitles.length > 0) {
-      setError("Please provide titles for all videos");
-      return;
-    }
-
-    const emptyUrls = videos.filter((v) => !v.url.trim());
-    if (emptyUrls.length > 0) {
-      setError("Please provide URLs for all videos");
-      return;
-    }
-
-    // Basic URL validation
-    const invalidUrls = videos.filter(
-      (v) =>
-        !v.url.includes("tiktok.com") &&
-        !v.url.includes("instagram.com") &&
-        !v.url.includes("youtube.com") &&
-        !v.url.includes("youtu.be")
-    );
-
-    if (invalidUrls.length > 0) {
-      setError("Please provide valid TikTok, Instagram, or YouTube URLs");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const response = await createRankingVideo(
-        mainTitle,
-        videos.map((v) => ({ url: v.url, title: v.title })),
-        width,
-        height
-      );
-      setResult(response);
-    } catch (err: unknown) {
-      const error = err as {
-        response?: { data?: { details?: string; error?: string } };
-      };
-      setError(
-        error.response?.data?.details ||
-          error.response?.data?.error ||
-          "Failed to create ranking video. Please try again."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const getPlatformIcon = (url: string) => {
     if (url.includes("tiktok")) return "🎵";
     if (url.includes("instagram")) return "📸";
@@ -361,7 +288,7 @@ export default function RankingVideos() {
               value={mainTitle}
               onChange={setMainTitle}
               placeholder="e.g., Top 3 Most Viral TikToks of 2024"
-              disabled={loading}
+              disabled={false}
             />
           </div>
 
@@ -369,14 +296,14 @@ export default function RankingVideos() {
           <div className="count-selector">
             <label className="section-label">Number of Videos</label>
             <div className="count-buttons">
-              {([2, 3, 4] as const).map((count) => (
+              {([3, 4, 5, 6] as const).map((count) => (
                 <button
                   key={count}
                   className={`count-btn ${
                     videoCount === count ? "active" : ""
                   }`}
                   onClick={() => handleVideoCountChange(count)}
-                  disabled={loading}
+                  disabled={false}
                 >
                   <span className="count-number">{count}</span>
                   <span className="count-label">Videos</span>
@@ -406,7 +333,7 @@ export default function RankingVideos() {
                       onChange={(e) =>
                         handleVideoChange(index, "url", e.target.value)
                       }
-                      disabled={loading}
+                      disabled={false}
                     />
                   </div>
                   <RichTextInput
@@ -415,7 +342,7 @@ export default function RankingVideos() {
                       handleVideoChange(index, "title", segments)
                     }
                     placeholder={`Video ${index + 1} Title`}
-                    disabled={loading}
+                    disabled={false}
                   />
                 </div>
               </div>
@@ -434,7 +361,7 @@ export default function RankingVideos() {
                   setWidth(1080);
                   setHeight(1920);
                 }}
-                disabled={loading}
+                disabled={false}
               >
                 <span className="dimension-icon">📱</span>
                 <span>Vertical</span>
@@ -448,7 +375,7 @@ export default function RankingVideos() {
                   setWidth(1920);
                   setHeight(1080);
                 }}
-                disabled={loading}
+                disabled={false}
               >
                 <span className="dimension-icon">🖥️</span>
                 <span>Horizontal</span>
@@ -462,7 +389,7 @@ export default function RankingVideos() {
                   setWidth(1080);
                   setHeight(1080);
                 }}
-                disabled={loading}
+                disabled={false}
               >
                 <span className="dimension-icon">⬜</span>
                 <span>Square</span>
@@ -479,22 +406,22 @@ export default function RankingVideos() {
             </div>
           )}
 
-          {/* Submit Button */}
+          {/* Regenerate Preview Button */}
           <div className="create-button-container">
             <button
               className="create-button"
-              onClick={handleSubmit}
-              disabled={loading}
+              onClick={handleGeneratePreview}
+              disabled={previewState.isGenerating}
             >
-              {loading ? (
+              {previewState.isGenerating ? (
                 <>
                   <span className="spinner"></span>
-                  Creating...
+                  Generating...
                 </>
               ) : (
                 <>
-                  <span className="create-icon">🎬</span>
-                  Create Ranking Video
+                  <span className="create-icon">🔄</span>
+                  Regenerate Preview
                 </>
               )}
             </button>
@@ -507,10 +434,11 @@ export default function RankingVideos() {
               <li>
                 Enter a main title that will appear at the top of the video
               </li>
-              <li>Choose how many videos to rank (2-4)</li>
+              <li>Choose how many videos to rank (3-6)</li>
               <li>Paste URLs and give each video a descriptive title</li>
               <li>Select your preferred video dimensions</li>
-              <li>Click "Create" and watch your ranking video come to life!</li>
+              <li>Click "Regenerate Preview" to see the final video!</li>
+              <li>Download directly from the preview when ready</li>
             </ol>
             <div className="instructions-note">
               ℹ️ Each video will display: <strong>Main Title</strong> (top) and{" "}
@@ -531,46 +459,6 @@ export default function RankingVideos() {
             onGeneratePreview={handleGeneratePreview}
           />
         </div>
-
-        {/* Result spans both columns */}
-        {result && (
-          <div className="result-container">
-            <div className="result-header">
-              <h2 className="result-title">🎉 Your Ranking Video is Ready!</h2>
-              <p className="result-subtitle">{result.message}</p>
-            </div>
-
-            <div className="video-preview">
-              <video src={result.videoUrl} controls className="output-video" />
-            </div>
-
-            <div className="rankings-info">
-              <h3 className="rankings-title">Ranking List:</h3>
-              <div className="rankings-list">
-                {result.rankings?.map((ranking) => (
-                  <div key={ranking.rank} className="ranking-item">
-                    <div className="ranking-badge">#{ranking.rank}</div>
-                    <div className="ranking-details">
-                      <div className="ranking-title">{ranking.title}</div>
-                      <div className="ranking-url">
-                        {ranking.url.substring(0, 50)}...
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <a
-              href={result.videoUrl}
-              download="ranking-video.mp4"
-              className="download-button"
-            >
-              <span className="download-icon">⬇️</span>
-              Download Ranking Video
-            </a>
-          </div>
-        )}
       </div>
     </div>
   );
