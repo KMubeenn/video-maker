@@ -304,6 +304,7 @@ export function addTitleToVideo(
 
 /**
  * Concatenate multiple videos into a single video
+ * Uses concat filter with re-encoding to prevent audio overlap issues
  */
 export function concatenateVideos(
   inputPaths: string[],
@@ -316,7 +317,7 @@ export function concatenateVideos(
 
   const outputPath = path.join(outputsDir, outputFilename);
 
-  // Create a temporary file list for FFmpeg concat demuxer
+  // Create file list for concat protocol
   const fileListPath = path.join(outputsDir, `filelist-${Date.now()}.txt`);
   const fileListContent = inputPaths
     .map((p) => `file '${path.resolve(p).replace(/\\/g, "/")}'`)
@@ -329,7 +330,16 @@ export function concatenateVideos(
       .input(fileListPath)
       .inputOptions(["-f concat", "-safe 0"])
       .outputOptions([
-        "-c copy", // Copy streams without re-encoding for faster processing
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "28",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
       ])
       .output(outputPath)
       .on("start", (cmd) => {
@@ -495,13 +505,10 @@ export async function createRankingVideo(
       await new Promise<void>((resolve, reject) => {
         ffmpeg(inputPath)
           .videoFilters(filters)
-          .outputOptions([
-            "-c:v libx264",
-            "-preset ultrafast", // Changed from 'medium' to 'ultrafast' for faster previews
-            "-crf 28", // Slightly lower quality but much faster (was 23)
-            "-c:a aac",
-            "-b:a 128k",
-          ])
+          .audioCodec("aac")
+          .audioBitrate("128k")
+          .videoCodec("libx264")
+          .outputOptions(["-preset", "ultrafast", "-crf", "28"])
           .output(outputPath)
           .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
           .on("end", () => {
@@ -527,12 +534,24 @@ export async function createRankingVideo(
     console.log("File list content:");
     console.log(fileListContent);
 
-    // Concatenate videos using fluent-ffmpeg
+    // Concatenate videos using concat protocol with re-encoding
+    // This is more reliable than concat filter for handling different video properties
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
         .input(fileListPath)
         .inputOptions(["-f concat", "-safe 0"])
-        .outputOptions(["-c copy"])
+        .outputOptions([
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-crf",
+          "28",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+        ])
         .output(finalOutputPath)
         .on("start", (cmd) => console.log("Concatenating videos:", cmd))
         .on("end", () => {
