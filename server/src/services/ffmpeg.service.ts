@@ -156,7 +156,8 @@ function createFormattedTextFilters(
   baseY: number,
   fontFile: string,
   defaultColor: string = "white",
-  defaultFontSize: number = 52
+  defaultFontSize: number = 52,
+  addBorder: boolean = false // Optional: add black border for visibility
 ): string[] {
   // If it's a plain string, convert to single segment
   const textSegments =
@@ -221,8 +222,9 @@ function createFormattedTextFilters(
         // Position this segment
         const xPos = `(w/2)${xOffset >= 0 ? "+" : ""}${Math.round(xOffset)}`;
 
+        const borderParams = addBorder ? ":borderw=3:bordercolor=black" : "";
         filters.push(
-          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${currentY}`
+          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${currentY}${borderParams}`
         );
 
         // Move offset right by this segment's width (no buffers)
@@ -257,8 +259,9 @@ function createFormattedTextFilters(
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
+        const borderParams = addBorder ? ":borderw=3:bordercolor=black" : "";
         filters.push(
-          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${currentXOffset}:y=${currentY}`
+          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${currentXOffset}:y=${currentY}${borderParams}`
         );
 
         // Move position right for next segment (no buffers)
@@ -467,9 +470,9 @@ export async function createRankingVideo(
         const numColor = rankNum === video.rank ? "yellow" : "white";
         const titleColor = rankNum === video.rank ? "yellow" : "white";
 
-        // Add rank number (always visible)
+        // Add rank number (always visible) with black border for visibility
         filters.push(
-          `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}`
+          `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
         );
 
         // Add title text (only show for videos that have been revealed so far) using formatted text
@@ -480,7 +483,8 @@ export async function createRankingVideo(
             yPos + 4,
             rankingFont,
             titleColor,
-            48
+            48,
+            true // Add black border for visibility
           );
           filters.push(...videoTitleFilters);
         }
