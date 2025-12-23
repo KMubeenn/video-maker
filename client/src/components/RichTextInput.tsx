@@ -129,8 +129,21 @@ export function RichTextInput({
           </button>
           <button
             className="toolbar-btn color-btn"
-            style={{ background: "#FFD700", color: "black" }}
-            onClick={() => applyColorToAll("#FFD700")}
+            style={{
+              background: "black",
+              color: "white",
+              border: "1px solid #666",
+            }}
+            onClick={() => applyColorToAll("black")}
+            disabled={disabled}
+            title="Black"
+          >
+            B
+          </button>
+          <button
+            className="toolbar-btn color-btn"
+            style={{ background: "#FFC700", color: "black" }}
+            onClick={() => applyColorToAll("#FFC700")}
             disabled={disabled}
             title="Yellow"
           >
@@ -138,8 +151,8 @@ export function RichTextInput({
           </button>
           <button
             className="toolbar-btn color-btn"
-            style={{ background: "#FF6B6B", color: "white" }}
-            onClick={() => applyColorToAll("#FF6B6B")}
+            style={{ background: "#E63946", color: "white" }}
+            onClick={() => applyColorToAll("#E63946")}
             disabled={disabled}
             title="Red"
           >
@@ -147,8 +160,8 @@ export function RichTextInput({
           </button>
           <button
             className="toolbar-btn color-btn"
-            style={{ background: "#4ECDC4", color: "black" }}
-            onClick={() => applyColorToAll("#4ECDC4")}
+            style={{ background: "#06AED5", color: "white" }}
+            onClick={() => applyColorToAll("#06AED5")}
             disabled={disabled}
             title="Cyan"
           >
@@ -156,8 +169,8 @@ export function RichTextInput({
           </button>
           <button
             className="toolbar-btn color-btn"
-            style={{ background: "#95E1D3", color: "black" }}
-            onClick={() => applyColorToAll("#95E1D3")}
+            style={{ background: "#2D9E6D", color: "white" }}
+            onClick={() => applyColorToAll("#2D9E6D")}
             disabled={disabled}
             title="Green"
           >
@@ -249,10 +262,11 @@ export function RichTextInput({
                       className="word-color-select"
                     >
                       <option value="white">White</option>
-                      <option value="#FFD700">Yellow</option>
-                      <option value="#FF6B6B">Red</option>
-                      <option value="#4ECDC4">Cyan</option>
-                      <option value="#95E1D3">Green</option>
+                      <option value="black">Black</option>
+                      <option value="#FFC700">Yellow</option>
+                      <option value="#E63946">Red</option>
+                      <option value="#06AED5">Cyan</option>
+                      <option value="#2D9E6D">Green</option>
                     </select>
                     <select
                       value={segment.fontSize || 52}

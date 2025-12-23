@@ -59,6 +59,96 @@ function estimateTextWidth(text: string, fontSize: number): number {
   return width;
 }
 
+// Normalize colors - convert old light colors to new darker/saturated versions
+function normalizeColor(color: string | undefined): string {
+  if (!color) return "white";
+
+  const colorMap: Record<string, string> = {
+    "#FFD700": "#FFC700", // Old yellow -> New darker yellow
+    "#FF6B6B": "#E63946", // Old red -> New deeper red
+    "#4ECDC4": "#06AED5", // Old cyan -> New deeper cyan
+    "#95E1D3": "#2D9E6D", // Old green -> New forest green
+  };
+
+  return colorMap[color] || color; // Return mapped color or original if not in map
+}
+
+// Split text segments into multiple lines - SPLITS LONG SEGMENTS BY WORDS
+function splitIntoLines(
+  segments: TextSegment[],
+  maxWidth: number,
+  defaultFontSize: number
+): TextSegment[][] {
+  const lines: TextSegment[][] = [];
+  let currentLine: TextSegment[] = [];
+  let currentLineWidth = 0;
+
+  for (const segment of segments) {
+    const segmentWidth = estimateTextWidth(
+      segment.text,
+      segment.fontSize || defaultFontSize
+    );
+
+    // If this single segment is too wide, split it by words
+    if (segmentWidth > maxWidth) {
+      const words = segment.text.split(" ");
+
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        if (!word) continue; // Skip empty strings
+
+        const wordSegment: TextSegment = {
+          text: i < words.length - 1 ? word + " " : word,
+        };
+        if (segment.color !== undefined) wordSegment.color = segment.color;
+        if (segment.fontSize !== undefined)
+          wordSegment.fontSize = segment.fontSize;
+
+        const wordWidth = estimateTextWidth(
+          wordSegment.text,
+          segment.fontSize || defaultFontSize
+        );
+
+        if (currentLineWidth + wordWidth > maxWidth && currentLine.length > 0) {
+          lines.push(currentLine);
+          currentLine = [wordSegment];
+          currentLineWidth = wordWidth;
+        } else {
+          currentLine.push(wordSegment);
+          currentLineWidth += wordWidth;
+        }
+      }
+    } else {
+      // Segment fits - check if adding it would exceed max
+      if (
+        currentLineWidth + segmentWidth > maxWidth &&
+        currentLine.length > 0
+      ) {
+        // Skip whitespace-only segments at line breaks
+        if (segment.text.trim().length === 0) {
+          lines.push(currentLine);
+          currentLine = [];
+          currentLineWidth = 0;
+          continue;
+        }
+
+        lines.push(currentLine);
+        currentLine = [segment];
+        currentLineWidth = segmentWidth;
+      } else {
+        currentLine.push(segment);
+        currentLineWidth += segmentWidth;
+      }
+    }
+  }
+
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
 // Convert formatted text to FFmpeg drawtext filters
 function createFormattedTextFilters(
   segments: TextSegment[] | string,
@@ -81,51 +171,102 @@ function createFormattedTextFilters(
   const isCentered = typeof baseX === "string" && baseX.includes("w-text_w");
 
   if (isCentered) {
-    // Calculate total width of all segments
-    let totalWidth = 0;
-    for (const segment of textSegments) {
-      totalWidth += estimateTextWidth(
-        segment.text,
-        segment.fontSize || defaultFontSize
-      );
+    // Split into lines if text is too wide (use 80% of video width for safety)
+    // For 1080px wide video, max width = 850px (more conservative)
+    const maxWidth = 850;
+    const lines = splitIntoLines(textSegments, maxWidth, defaultFontSize);
+
+    // Calculate line height
+    const lineHeight = defaultFontSize + 10; // Add 10px spacing between lines
+
+    // Adjust base Y to center multiple lines vertically
+    const totalHeight = lines.length * lineHeight;
+    let currentY =
+      typeof baseY === "number" ? baseY : parseInt(String(baseY), 10);
+
+    // If multiple lines, adjust starting Y to center the block
+    if (lines.length > 1) {
+      currentY -= ((lines.length - 1) * lineHeight) / 2;
     }
 
-    // Start position: center of screen minus half of total width
-    let currentXOffset = -totalWidth / 2;
+    // Render each line
+    for (const lineSegments of lines) {
+      // Calculate total width of this line
+      let totalWidth = 0;
+      for (const segment of lineSegments) {
+        totalWidth += estimateTextWidth(
+          segment.text,
+          segment.fontSize || defaultFontSize
+        );
+      }
 
-    for (const segment of textSegments) {
-      const escText = segment.text.replace(/'/g, "\\'");
-      const color = segment.color || defaultColor;
-      const fontSize = segment.fontSize || defaultFontSize;
+      // Start position: center of screen minus half of total width
+      let currentXOffset = -totalWidth / 2;
 
-      // Position this segment: (w/2) + offset
-      const xPos = `(w/2)${currentXOffset >= 0 ? "+" : ""}${Math.round(
-        currentXOffset
-      )}`;
+      for (const segment of lineSegments) {
+        const escText = segment.text.replace(/'/g, "\\'");
+        const color = normalizeColor(segment.color) || defaultColor;
+        const fontSize = segment.fontSize || defaultFontSize;
 
-      filters.push(
-        `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${baseY}`
-      );
+        // Calculate x position
+        let xOffset = currentXOffset;
 
-      // Move offset right by this segment's width (no buffers)
-      currentXOffset += estimateTextWidth(segment.text, fontSize);
+        // Ensure text doesn't go off-screen (min x = 10, max x = w-10)
+        // For centered text: (w/2) + offset should be >= 10
+        // This means offset >= 10 - (w/2) = 10 - 540 = -530 for 1080px width
+        if (xOffset < -530) {
+          xOffset = -530; // Prevent going off left edge
+        }
+
+        // Position this segment
+        const xPos = `(w/2)${xOffset >= 0 ? "+" : ""}${Math.round(xOffset)}`;
+
+        filters.push(
+          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${currentY}`
+        );
+
+        // Move offset right by this segment's width (no buffers)
+        currentXOffset += estimateTextWidth(segment.text, fontSize);
+      }
+
+      // Move to next line
+      currentY += lineHeight;
     }
   } else {
-    // For left-aligned or absolute positioning
-    let currentXOffset =
+    // For left-aligned or absolute positioning - also support wrapping
+    const startX =
       typeof baseX === "number" ? baseX : parseInt(baseX as string, 10);
 
-    for (const segment of textSegments) {
-      const escText = segment.text.replace(/'/g, "\\'");
-      const color = segment.color || defaultColor;
-      const fontSize = segment.fontSize || defaultFontSize;
+    // For left-aligned text, limit width so it doesn't cover too much of the video
+    // Use a conservative max width of 600px to leave video visible
+    const maxWidth = 700;
+    const lines = splitIntoLines(textSegments, maxWidth, defaultFontSize);
 
-      filters.push(
-        `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${currentXOffset}:y=${baseY}`
-      );
+    // Calculate line height
+    const lineHeight = defaultFontSize + 8; // Slightly tighter spacing for list items
 
-      // Move position right for next segment (no buffers)
-      currentXOffset += estimateTextWidth(segment.text, fontSize);
+    let currentY =
+      typeof baseY === "number" ? baseY : parseInt(String(baseY), 10);
+
+    // Render each line
+    for (const lineSegments of lines) {
+      let currentXOffset = startX;
+
+      for (const segment of lineSegments) {
+        const escText = segment.text.replace(/'/g, "\\'");
+        const color = normalizeColor(segment.color) || defaultColor;
+        const fontSize = segment.fontSize || defaultFontSize;
+
+        filters.push(
+          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${currentXOffset}:y=${currentY}`
+        );
+
+        // Move position right for next segment (no buffers)
+        currentXOffset += estimateTextWidth(segment.text, fontSize);
+      }
+
+      // Move to next line
+      currentY += lineHeight;
     }
   }
 
@@ -144,7 +285,7 @@ export function addTitleToVideo(
 
   return new Promise((resolve, reject) => {
     // Build the drawtext filter as a string
-    const drawtextFilter = `drawtext=fontfile='C\\:/Windows/Fonts/Arial.ttf':text='${title.replace(
+    const drawtextFilter = `drawtext=fontfile='C\\\\:/Windows/Fonts/Arial.ttf':text='${title.replace(
       /'/g,
       "\\'"
     )}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=40:shadowcolor=black:shadowx=2:shadowy=2`;
