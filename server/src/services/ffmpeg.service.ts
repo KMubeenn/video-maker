@@ -503,24 +503,84 @@ export async function createRankingVideo(
       console.log(`Processing video ${video.rank}...`);
 
       await new Promise<void>((resolve, reject) => {
-        ffmpeg(inputPath)
-          .videoFilters(filters)
-          .audioCodec("aac")
-          .audioBitrate("128k")
-          .videoCodec("libx264")
-          .outputOptions(["-preset", "ultrafast", "-crf", "28"])
-          .output(outputPath)
-          .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
-          .on("end", () => {
-            console.log(`Successfully processed video ${video.rank}`);
-            processedVideos.push(outputPath);
-            resolve();
-          })
-          .on("error", (err) => {
-            console.error(`Error processing video ${video.rank}:`, err);
+        const command = ffmpeg(inputPath);
+
+        // First, probe the input to check if it has audio
+        ffmpeg.ffprobe(inputPath, (err, metadata) => {
+          if (err) {
             reject(err);
-          })
-          .run();
+            return;
+          }
+
+          const hasAudio = metadata.streams.some(
+            (stream) => stream.codec_type === "audio"
+          );
+
+          if (hasAudio) {
+            // Video has audio - process normally
+            command
+              .videoFilters(filters)
+              .audioCodec("aac")
+              .audioBitrate("128k")
+              .videoCodec("libx264")
+              .outputOptions(["-preset", "ultrafast", "-crf", "28"])
+              .output(outputPath)
+              .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
+              .on("end", () => {
+                console.log(`Successfully processed video ${video.rank}`);
+                processedVideos.push(outputPath);
+                resolve();
+              })
+              .on("error", (err) => {
+                console.error(`Error processing video ${video.rank}:`, err);
+                reject(err);
+              })
+              .run();
+          } else {
+            // Video has NO audio - add silent audio
+            console.log(
+              `Video ${video.rank} has no audio - adding silent audio`
+            );
+
+            // Build complex filter: video filters + silent audio generation
+            const videoFilterString = filters.join(",");
+            const filterComplex = `[0:v]${videoFilterString}[outv];anullsrc=channel_layout=stereo:sample_rate=44100[silent]`;
+
+            command
+              .complexFilter(filterComplex)
+              .outputOptions([
+                "-map",
+                "[outv]",
+                "-map",
+                "[silent]",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "28",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-shortest", // Match audio duration to video duration
+              ])
+              .output(outputPath)
+              .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
+              .on("end", () => {
+                console.log(
+                  `Successfully processed video ${video.rank} with silent audio`
+                );
+                processedVideos.push(outputPath);
+                resolve();
+              })
+              .on("error", (err) => {
+                console.error(`Error processing video ${video.rank}:`, err);
+                reject(err);
+              })
+              .run();
+          }
+        });
       });
     }
 
@@ -684,25 +744,79 @@ export async function generateRankingPreview(
   console.log(`Generating preview for rank ${options.rank}...`);
 
   return new Promise<string>((resolve, reject) => {
-    ffmpeg(inputVideoPath)
-      .videoFilters(filters)
-      .outputOptions([
-        "-c:v libx264",
-        "-preset medium",
-        "-crf 23",
-        "-c:a aac",
-        "-b:a 128k",
-      ])
-      .output(outputPath)
-      .on("start", (cmd) => console.log(`FFmpeg preview command: ${cmd}`))
-      .on("end", () => {
-        console.log(`Preview generated successfully: ${outputPath}`);
-        resolve(outputPath);
-      })
-      .on("error", (err) => {
-        console.error(`Error generating preview:`, err);
+    const command = ffmpeg(inputVideoPath);
+
+    // First, probe the input to check if it has audio
+    ffmpeg.ffprobe(inputVideoPath, (err, metadata) => {
+      if (err) {
         reject(err);
-      })
-      .run();
+        return;
+      }
+
+      const hasAudio = metadata.streams.some(
+        (stream) => stream.codec_type === "audio"
+      );
+
+      if (hasAudio) {
+        // Video has audio - process normally
+        command
+          .videoFilters(filters)
+          .audioCodec("aac")
+          .audioBitrate("128k")
+          .videoCodec("libx264")
+          .outputOptions(["-preset", "medium", "-crf", "23"])
+          .output(outputPath)
+          .on("start", (cmd) => console.log(`FFmpeg preview command: ${cmd}`))
+          .on("end", () => {
+            console.log(`Preview generated successfully: ${outputPath}`);
+            resolve(outputPath);
+          })
+          .on("error", (err) => {
+            console.error(`Error generating preview:`, err);
+            reject(err);
+          })
+          .run();
+      } else {
+        // Video has NO audio - add silent audio
+        console.log(`Preview video has no audio - adding silent audio`);
+
+        // Build complex filter: video filters + silent audio generation
+        const videoFilterString = filters.join(",");
+        const filterComplex = `[0:v]${videoFilterString}[outv];anullsrc=channel_layout=stereo:sample_rate=44100[silent]`;
+
+        command
+          .complexFilter(filterComplex)
+          .outputOptions([
+            "-map",
+            "[outv]",
+            "-map",
+            "[silent]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest", // Match audio duration to video duration
+          ])
+          .output(outputPath)
+          .on("start", (cmd) => console.log(`FFmpeg preview command: ${cmd}`))
+          .on("end", () => {
+            console.log(
+              `Preview generated successfully with silent audio: ${outputPath}`
+            );
+            resolve(outputPath);
+          })
+          .on("error", (err) => {
+            console.error(`Error generating preview:`, err);
+            reject(err);
+          })
+          .run();
+      }
+    });
   });
 }
