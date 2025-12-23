@@ -17,6 +17,15 @@ interface PreviewState {
   isGenerating: boolean;
   videoUrl: string | null;
   error: string | null;
+  warnings?: {
+    message: string;
+    failedVideos: Array<{
+      url: string;
+      index: number;
+      error: string;
+      platform: string;
+    }>;
+  };
 }
 
 interface PreviewProps {
@@ -133,6 +142,31 @@ function VideoPreviewPanel({
         </div>
       </div>
 
+      {/* Show warnings if any videos failed */}
+      {previewState.warnings && (
+        <div className="preview-warnings">
+          <div className="warning-header">
+            <span className="warning-icon">⚠️</span>
+            <strong>{previewState.warnings.message}</strong>
+          </div>
+          <div className="failed-videos-list">
+            {previewState.warnings.failedVideos.map((failure, idx) => (
+              <div key={idx} className="failed-video-item">
+                <span className="failed-video-rank">#{failure.index + 1}</span>
+                <div className="failed-video-details">
+                  <div className="failed-video-url" title={failure.url}>
+                    {failure.url.length > 50
+                      ? `${failure.url.substring(0, 50)}...`
+                      : failure.url}
+                  </div>
+                  <div className="failed-video-error">{failure.error}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="preview-hint">
         👆 This shows the complete final video with all clips concatenated.
         Generate to see the exact output!
@@ -154,6 +188,9 @@ export default function RankingVideos() {
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1920);
   const [error, setError] = useState("");
+  const [failedVideoIndices, setFailedVideoIndices] = useState<Set<number>>(
+    new Set()
+  );
 
   // Single preview state
   const [previewState, setPreviewState] = useState<PreviewState>({
@@ -176,6 +213,7 @@ export default function RankingVideos() {
     }
     setVideos(newVideos);
     setError("");
+    setFailedVideoIndices(new Set());
     // Clear preview when changing video count
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
@@ -193,6 +231,14 @@ export default function RankingVideos() {
     }
     setVideos(newVideos);
     setError("");
+
+    // Clear failed state for this specific video when it's changed
+    setFailedVideoIndices((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(index);
+      return newSet;
+    });
+
     // Clear preview when video data changes
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
@@ -238,10 +284,20 @@ export default function RankingVideos() {
         width,
         height
       );
+      // Extract failed video indices from warnings
+      const failedIndices = new Set<number>();
+      if (response.warnings?.failedVideos) {
+        response.warnings.failedVideos.forEach((failure) => {
+          failedIndices.add(failure.index);
+        });
+      }
+
+      setFailedVideoIndices(failedIndices);
       setPreviewState({
         isGenerating: false,
         videoUrl: response.videoUrl,
         error: null,
+        warnings: response.warnings,
       });
     } catch (err: unknown) {
       const error = err as {
@@ -255,6 +311,7 @@ export default function RankingVideos() {
         isGenerating: false,
         videoUrl: null,
         error: errorMessage,
+        warnings: undefined,
       });
     }
   };
@@ -315,38 +372,62 @@ export default function RankingVideos() {
           {/* Video Inputs */}
           <div className="videos-section">
             <label className="section-label">Ranking Videos</label>
-            {videos.map((video, index) => (
-              <div key={video.id} className="video-input-group">
-                <div className="rank-badge">#{index + 1}</div>
-                <div className="video-inputs">
-                  <div className="input-wrapper">
-                    <div className="input-icon">
-                      {getPlatformIcon(video.url) || `${index + 1}`}
+            {videos.map((video, index) => {
+              const hasFailed = failedVideoIndices.has(index);
+              const failureInfo = previewState.warnings?.failedVideos.find(
+                (f) => f.index === index
+              );
+
+              return (
+                <div
+                  key={video.id}
+                  className={`video-input-group ${
+                    hasFailed ? "has-error" : ""
+                  }`}
+                >
+                  <div className={`rank-badge ${hasFailed ? "error" : ""}`}>
+                    #{index + 1}
+                  </div>
+                  <div className="video-inputs">
+                    <div className="input-wrapper">
+                      <div className={`input-icon ${hasFailed ? "error" : ""}`}>
+                        {hasFailed
+                          ? "⚠️"
+                          : getPlatformIcon(video.url) || `${index + 1}`}
+                      </div>
+                      <input
+                        type="url"
+                        className={`url-input ${hasFailed ? "error" : ""}`}
+                        placeholder={`Video ${
+                          index + 1
+                        } URL (TikTok, Instagram, YouTube)`}
+                        value={video.url}
+                        onChange={(e) =>
+                          handleVideoChange(index, "url", e.target.value)
+                        }
+                        disabled={false}
+                      />
                     </div>
-                    <input
-                      type="url"
-                      className="url-input"
-                      placeholder={`Video ${
-                        index + 1
-                      } URL (TikTok, Instagram, YouTube)`}
-                      value={video.url}
-                      onChange={(e) =>
-                        handleVideoChange(index, "url", e.target.value)
+                    {hasFailed && failureInfo && (
+                      <div className="inline-error-message">
+                        <span className="inline-error-icon">⚠️</span>
+                        <span className="inline-error-text">
+                          {failureInfo.error}
+                        </span>
+                      </div>
+                    )}
+                    <RichTextInput
+                      value={video.title}
+                      onChange={(segments) =>
+                        handleVideoChange(index, "title", segments)
                       }
+                      placeholder={`Video ${index + 1} Title`}
                       disabled={false}
                     />
                   </div>
-                  <RichTextInput
-                    value={video.title}
-                    onChange={(segments) =>
-                      handleVideoChange(index, "title", segments)
-                    }
-                    placeholder={`Video ${index + 1} Title`}
-                    disabled={false}
-                  />
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Video Dimensions */}

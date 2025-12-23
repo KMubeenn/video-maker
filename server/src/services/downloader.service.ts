@@ -13,6 +13,18 @@ export interface DownloadResult {
   originalUrl: string;
 }
 
+export interface DownloadError {
+  url: string;
+  index: number;
+  error: string;
+  platform: string;
+}
+
+export interface MultiDownloadResult {
+  successful: DownloadResult[];
+  failed: DownloadError[];
+}
+
 /**
  * Detect the platform from URL
  */
@@ -134,25 +146,34 @@ export async function downloadVideo(
 
 /**
  * Download multiple videos sequentially, using cache when available
+ * Now handles partial failures - returns both successful and failed downloads
  */
 export async function downloadMultipleVideos(
   urls: string[]
-): Promise<DownloadResult[]> {
-  const results: DownloadResult[] = [];
+): Promise<MultiDownloadResult> {
+  const successful: DownloadResult[] = [];
+  const failed: DownloadError[] = [];
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
     if (!url) {
-      throw new Error(`URL at index ${i} is undefined or empty`);
+      failed.push({
+        url: url || "undefined",
+        index: i,
+        error: "URL is undefined or empty",
+        platform: "unknown",
+      });
+      continue;
     }
+
+    const platform = detectPlatform(url);
 
     try {
       // Check if video is cached
       const cachedPath = videoCache.get(url);
       if (cachedPath) {
         console.log(`Using cached video for: ${url}`);
-        const platform = detectPlatform(url);
-        results.push({
+        successful.push({
           filePath: cachedPath,
           platform,
           originalUrl: url,
@@ -170,23 +191,47 @@ export async function downloadMultipleVideos(
       // Update result to use cached path
       const cachedPath2 = videoCache.get(url);
       if (cachedPath2) {
-        results.push({
+        successful.push({
           ...result,
           filePath: cachedPath2,
         });
       } else {
-        results.push(result);
+        successful.push(result);
       }
     } catch (error: unknown) {
-      // If one download fails, don't clean up cache, just throw error
       const err = error as Error;
-      throw new Error(
-        `Failed to download video ${i + 1}/${urls.length}: ${err.message}`
+
+      // Extract more meaningful error message
+      let errorMessage = err.message;
+
+      // Check for specific Instagram errors
+      if (
+        errorMessage.includes("inappropriate") ||
+        errorMessage.includes("unavailable for certain audiences")
+      ) {
+        errorMessage =
+          "Content is age-restricted or unavailable for certain audiences";
+      } else if (errorMessage.includes("private")) {
+        errorMessage = "Content is private and requires authentication";
+      } else if (errorMessage.includes("not available")) {
+        errorMessage = "Video not available or has been removed";
+      }
+
+      console.error(
+        `Failed to download video ${i + 1}/${urls.length} (${url}):`,
+        errorMessage
       );
+
+      failed.push({
+        url,
+        index: i,
+        error: errorMessage,
+        platform,
+      });
     }
   }
 
-  return results;
+  return { successful, failed };
 }
 
 /**

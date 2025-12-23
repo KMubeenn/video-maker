@@ -52,6 +52,15 @@ export interface PreviewVideoResponse {
   success: boolean;
   videoUrl: string;
   message: string;
+  warnings?: {
+    message: string;
+    failedVideos: Array<{
+      url: string;
+      index: number;
+      error: string;
+      platform: string;
+    }>;
+  };
 }
 
 export const generateFullPreview = async (

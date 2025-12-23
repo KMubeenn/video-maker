@@ -2,6 +2,8 @@ import type { Request, Response } from "express";
 import {
   downloadVideo,
   downloadMultipleVideos,
+  type MultiDownloadResult,
+  type DownloadError,
 } from "../services/downloader.service.js";
 import {
   createRankingVideo,
@@ -61,17 +63,57 @@ export async function createRanking(req: Request, res: Response) {
     // Download all videos
     console.log("Step 1: Downloading videos...");
     const urls = videos.map((v) => v.url);
-    const downloadedVideos = await downloadMultipleVideos(urls);
-    console.log(`Successfully downloaded ${downloadedVideos.length} videos`);
+    const downloadResults = await downloadMultipleVideos(urls);
 
-    // Prepare ranking video inputs
-    const rankingInputs = downloadedVideos.map((downloaded, index) => ({
-      filePath: downloaded.filePath,
-      title: videos[index]?.title || [
-        { text: `Video ${index + 1}`, color: "white", fontSize: 48 },
-      ],
-      rank: index + 1,
-    }));
+    // Check if we have enough successful downloads
+    if (downloadResults.successful.length === 0) {
+      return res.status(400).json({
+        error: "All video downloads failed",
+        failedVideos: downloadResults.failed,
+      });
+    }
+
+    if (downloadResults.successful.length < 3) {
+      return res.status(400).json({
+        error: "At least 3 videos are required for ranking",
+        message: `Only ${downloadResults.successful.length} out of ${urls.length} videos downloaded successfully`,
+        failedVideos: downloadResults.failed,
+      });
+    }
+
+    // Log warnings for failed downloads
+    if (downloadResults.failed.length > 0) {
+      console.warn(
+        `\n⚠️  Warning: ${downloadResults.failed.length} video(s) failed to download:`
+      );
+      downloadResults.failed.forEach((failure) => {
+        console.warn(
+          `  - Video ${failure.index + 1} (${failure.url}): ${failure.error}`
+        );
+      });
+      console.warn(
+        `Proceeding with ${downloadResults.successful.length} successful downloads\n`
+      );
+    }
+
+    console.log(
+      `Successfully downloaded ${downloadResults.successful.length} videos`
+    );
+
+    // Prepare ranking video inputs (maintaining original order with successful downloads only)
+    const rankingInputs = downloadResults.successful.map((downloaded) => {
+      // Find the original index of this video
+      const originalIndex = urls.findIndex(
+        (url) => url === downloaded.originalUrl
+      );
+      return {
+        filePath: downloaded.filePath,
+        title: videos[originalIndex]?.title || [
+          { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
+        ],
+        rank: originalIndex + 1,
+      };
+    });
 
     // Shuffle video order: randomize positions 2-N, keep rank 1 for last
     console.log("Shuffling video playback order (rank 1 plays last)...");
@@ -108,17 +150,25 @@ export async function createRanking(req: Request, res: Response) {
 
     // Note: Not cleaning up downloaded files - they are cached for reuse
 
-    // Return success response
-    res.json({
+    // Return success response with warnings if any videos failed
+    const response: any = {
       success: true,
       videoUrl: `http://localhost:4000/${outputPath.replace(/\\/g, "/")}`,
-      message: `Successfully created ranking video with ${videos.length} videos`,
-      rankings: videos.map((v, i) => ({
-        rank: i + 1,
+      message: `Successfully created ranking video with ${downloadResults.successful.length} videos`,
+      rankings: rankingInputs.map((v) => ({
+        rank: v.rank,
         title: v.title,
-        url: v.url,
       })),
-    });
+    };
+
+    if (downloadResults.failed.length > 0) {
+      response.warnings = {
+        message: `${downloadResults.failed.length} video(s) were skipped due to download errors`,
+        failedVideos: downloadResults.failed,
+      };
+    }
+
+    res.json(response);
   } catch (error: unknown) {
     const err = error as Error;
     console.error("Ranking video creation failed:", err);
@@ -177,17 +227,57 @@ export async function generateFullPreview(req: Request, res: Response) {
     // Download all videos
     console.log("Step 1: Downloading all videos...");
     const urls = videos.map((v) => v.url);
-    const downloadedVideos = await downloadMultipleVideos(urls);
-    console.log(`Successfully downloaded ${downloadedVideos.length} videos`);
+    const downloadResults = await downloadMultipleVideos(urls);
 
-    // Prepare ranking video inputs
-    const rankingInputs = downloadedVideos.map((downloaded, index) => ({
-      filePath: downloaded.filePath,
-      title: videos[index]?.title || [
-        { text: `Video ${index + 1}`, color: "white", fontSize: 48 },
-      ],
-      rank: index + 1,
-    }));
+    // Check if we have enough successful downloads
+    if (downloadResults.successful.length === 0) {
+      return res.status(400).json({
+        error: "All video downloads failed",
+        failedVideos: downloadResults.failed,
+      });
+    }
+
+    if (downloadResults.successful.length < 3) {
+      return res.status(400).json({
+        error: "At least 3 videos are required for ranking",
+        message: `Only ${downloadResults.successful.length} out of ${urls.length} videos downloaded successfully`,
+        failedVideos: downloadResults.failed,
+      });
+    }
+
+    // Log warnings for failed downloads
+    if (downloadResults.failed.length > 0) {
+      console.warn(
+        `\n⚠️  Warning: ${downloadResults.failed.length} video(s) failed to download:`
+      );
+      downloadResults.failed.forEach((failure) => {
+        console.warn(
+          `  - Video ${failure.index + 1} (${failure.url}): ${failure.error}`
+        );
+      });
+      console.warn(
+        `Proceeding with ${downloadResults.successful.length} successful downloads\n`
+      );
+    }
+
+    console.log(
+      `Successfully downloaded ${downloadResults.successful.length} videos`
+    );
+
+    // Prepare ranking video inputs (maintaining original order with successful downloads only)
+    const rankingInputs = downloadResults.successful.map((downloaded) => {
+      // Find the original index of this video
+      const originalIndex = urls.findIndex(
+        (url) => url === downloaded.originalUrl
+      );
+      return {
+        filePath: downloaded.filePath,
+        title: videos[originalIndex]?.title || [
+          { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
+        ],
+        rank: originalIndex + 1,
+      };
+    });
 
     // Shuffle video order: randomize positions 2-N, keep rank 1 for last
     console.log("Shuffling video playback order (rank 1 plays last)...");
@@ -226,11 +316,20 @@ export async function generateFullPreview(req: Request, res: Response) {
 
     // Note: Not cleaning up downloaded files - they are cached for reuse
 
-    res.json({
+    const response: any = {
       success: true,
       videoUrl: `http://localhost:4000/${outputPath.replace(/\\/g, "/")}`,
-      message: `Successfully created preview with ${videos.length} videos`,
-    });
+      message: `Successfully created preview with ${downloadResults.successful.length} videos`,
+    };
+
+    if (downloadResults.failed.length > 0) {
+      response.warnings = {
+        message: `${downloadResults.failed.length} video(s) were skipped due to download errors`,
+        failedVideos: downloadResults.failed,
+      };
+    }
+
+    res.json(response);
   } catch (error: unknown) {
     const err = error as Error;
     console.error("Full preview generation failed:", err);
