@@ -9,6 +9,56 @@ export interface TextSegment {
   fontSize?: number;
 }
 
+// Estimate character width for Impact font with more accurate measurements
+function estimateTextWidth(text: string, fontSize: number): number {
+  // Based on actual Impact font measurements at 52px baseline
+  // These are more accurate ratios per character type
+  let width = 0;
+
+  for (const char of text) {
+    let ratio;
+    if (char === " ") {
+      ratio = 0.45; // Space is about 45% of font size (increased for better spacing)
+    } else if (/[A-Z]/.test(char)) {
+      // Uppercase varies by letter, using specific measurements
+      const wideChars = "MWOQ";
+      const narrowChars = "IJ";
+      const mediumWideChars = "VCDG"; // V, C, D, G are medium-wide
+      if (wideChars.includes(char)) {
+        ratio = 0.65;
+      } else if (narrowChars.includes(char)) {
+        ratio = 0.35;
+      } else if (mediumWideChars.includes(char)) {
+        ratio = 0.62;
+      } else {
+        ratio = 0.54; // Average uppercase
+      }
+    } else if (/[a-z]/.test(char)) {
+      // Lowercase average
+      const wideChars = "mw";
+      const narrowChars = "ijlt";
+      const mediumChars = "vng";
+      if (wideChars.includes(char)) {
+        ratio = 0.58;
+      } else if (narrowChars.includes(char)) {
+        ratio = 0.28;
+      } else if (mediumChars.includes(char)) {
+        ratio = 0.5;
+      } else {
+        ratio = 0.47;
+      }
+    } else if (/[0-9]/.test(char)) {
+      ratio = 0.52; // Numbers are fairly consistent
+    } else {
+      ratio = 0.4; // Punctuation and others
+    }
+
+    width += fontSize * ratio;
+  }
+
+  return width;
+}
+
 // Convert formatted text to FFmpeg drawtext filters
 function createFormattedTextFilters(
   segments: TextSegment[] | string,
@@ -24,30 +74,58 @@ function createFormattedTextFilters(
       ? [{ text: segments, color: defaultColor, fontSize: defaultFontSize }]
       : segments;
 
+  // Don't merge segments - keep them as-is for accurate positioning
   const filters: string[] = [];
-  let currentX = baseX;
 
-  for (const [index, segment] of textSegments.entries()) {
-    const escText = segment.text.replace(/'/g, "\\'");
-    const color = segment.color || defaultColor;
-    const fontSize = segment.fontSize || defaultFontSize;
+  // For center-aligned text, we need to calculate total width and center the block
+  const isCentered = typeof baseX === "string" && baseX.includes("w-text_w");
 
-    // For centered text, we need to calculate total width first
-    if (typeof baseX === "string" && baseX.includes("text_w")) {
-      // Center the whole text block
-      const xPos = index === 0 ? baseX : `${currentX}+text_w`;
+  if (isCentered) {
+    // Calculate total width of all segments
+    let totalWidth = 0;
+    for (const segment of textSegments) {
+      totalWidth += estimateTextWidth(
+        segment.text,
+        segment.fontSize || defaultFontSize
+      );
+    }
+
+    // Start position: center of screen minus half of total width
+    let currentXOffset = -totalWidth / 2;
+
+    for (const segment of textSegments) {
+      const escText = segment.text.replace(/'/g, "\\'");
+      const color = segment.color || defaultColor;
+      const fontSize = segment.fontSize || defaultFontSize;
+
+      // Position this segment: (w/2) + offset
+      const xPos = `(w/2)${currentXOffset >= 0 ? "+" : ""}${Math.round(
+        currentXOffset
+      )}`;
+
       filters.push(
         `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${baseY}`
       );
-      currentX = xPos;
-    } else {
-      // Left-aligned or absolute positioning
-      const xPos = index === 0 ? currentX : `${currentX}`;
+
+      // Move offset right by this segment's width (no buffers)
+      currentXOffset += estimateTextWidth(segment.text, fontSize);
+    }
+  } else {
+    // For left-aligned or absolute positioning
+    let currentXOffset =
+      typeof baseX === "number" ? baseX : parseInt(baseX as string, 10);
+
+    for (const segment of textSegments) {
+      const escText = segment.text.replace(/'/g, "\\'");
+      const color = segment.color || defaultColor;
+      const fontSize = segment.fontSize || defaultFontSize;
+
       filters.push(
-        `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${baseY}`
+        `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${currentXOffset}:y=${baseY}`
       );
-      // Update x position for next segment (current + text width)
-      currentX = `${xPos}+text_w`;
+
+      // Move position right for next segment (no buffers)
+      currentXOffset += estimateTextWidth(segment.text, fontSize);
     }
   }
 
@@ -333,11 +411,11 @@ export async function createRankingVideo(
 export async function generateRankingPreview(
   inputVideoPath: string,
   options: {
-    mainTitle: string;
-    videoTitle: string;
+    mainTitle: TextSegment[]; // Changed from string to TextSegment[]
+    videoTitle: TextSegment[]; // Changed from string to TextSegment[]
     rank: number;
     totalVideos: number;
-    allVideoTitles: string[]; // All video titles to show in ranking list
+    allVideoTitles: TextSegment[][]; // Changed from string[] to TextSegment[][]
     width?: number;
     height?: number;
   }
@@ -369,10 +447,6 @@ export async function generateRankingPreview(
   const titleFont = "C\\:/Windows/Fonts/impact.ttf";
   const rankingFont = "C\\:/Windows/Fonts/impact.ttf";
 
-  // Escape single quotes in text
-  const escapeText = (text: string) => text.replace(/'/g, "\\'");
-  const mainTitleText = escapeText(options.mainTitle);
-
   // Build filters (exact same as createRankingVideo)
   const filters: string[] = [];
 
@@ -389,16 +463,27 @@ export async function generateRankingPreview(
   // 3. Pad to full canvas - video positioned below title area
   filters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
 
-  // 4. Add main title at the top center with background box
-  filters.push(
-    `drawtext=fontfile='${titleFont}':text='${mainTitleText}':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=90:box=1:boxcolor=black@0.6:boxborderw=12`
+  // 4. Add main title at the top center with background box using formatted text
+  const mainTitleFilters = createFormattedTextFilters(
+    options.mainTitle,
+    "(w-text_w)/2",
+    90,
+    titleFont
   );
+  // Add box background to first segment only
+  if (mainTitleFilters.length > 0 && mainTitleFilters[0]) {
+    mainTitleFilters[0] = mainTitleFilters[0].replace(
+      `:y=90`,
+      `:y=90:box=1:boxcolor=black@0.6:boxborderw=12`
+    );
+  }
+  filters.push(...mainTitleFilters);
 
   // 5. Add all ranking numbers and titles (same logic as createRankingVideo)
   for (let i = 0; i < totalVideos; i++) {
     const rankNum = i + 1;
     const yPos = rankingStartY + i * rankingItemHeight;
-    const videoTitle = escapeText(options.allVideoTitles[i] || "");
+    const videoTitleSegments = options.allVideoTitles[i] || [];
 
     // Determine color - yellow for current video, white for others
     const numColor = rankNum === options.rank ? "yellow" : "white";
@@ -409,13 +494,17 @@ export async function generateRankingPreview(
       `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}`
     );
 
-    // Add title text (only show for current and previous videos)
-    if (rankNum <= options.rank) {
-      filters.push(
-        `drawtext=fontfile='${rankingFont}':text='${videoTitle}':fontsize=48:fontcolor=${titleColor}:x=90:y=${
-          yPos + 4
-        }`
+    // Add title text (only show for current and previous videos) using formatted text
+    if (rankNum <= options.rank && videoTitleSegments.length > 0) {
+      const videoTitleFilters = createFormattedTextFilters(
+        videoTitleSegments,
+        90,
+        yPos + 4,
+        rankingFont,
+        titleColor,
+        48
       );
+      filters.push(...videoTitleFilters);
     }
   }
 
