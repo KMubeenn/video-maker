@@ -449,10 +449,19 @@ export async function createRankingVideo(
       filters.push(...mainTitleFilters);
 
       // 5. Add all ranking numbers on the left (centered vertically)
+      // Track which ranks have been revealed so far (based on playback order, not rank order)
+      const revealedRanks = new Set<number>();
+      for (let j = 0; j <= options.videos.indexOf(video); j++) {
+        const revealedVideo = options.videos[j];
+        if (revealedVideo) {
+          revealedRanks.add(revealedVideo.rank);
+        }
+      }
+
       for (let i = 0; i < totalVideos; i++) {
         const rankNum = i + 1;
         const yPos = rankingStartY + i * rankingItemHeight;
-        const videoInfo = options.videos[i];
+        const videoInfo = options.videos.find((v) => v.rank === rankNum);
 
         // Determine color - yellow for current video, white for others
         const numColor = rankNum === video.rank ? "yellow" : "white";
@@ -463,8 +472,8 @@ export async function createRankingVideo(
           `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}`
         );
 
-        // Add title text (only show for current and previous videos) using formatted text
-        if (rankNum <= video.rank && videoInfo) {
+        // Add title text (only show for videos that have been revealed so far) using formatted text
+        if (revealedRanks.has(rankNum) && videoInfo) {
           const videoTitleFilters = createFormattedTextFilters(
             videoInfo.title,
             90,

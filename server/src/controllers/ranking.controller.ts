@@ -73,13 +73,33 @@ export async function createRanking(req: Request, res: Response) {
       rank: index + 1,
     }));
 
+    // Shuffle video order: randomize positions 2-N, keep rank 1 for last
+    console.log("Shuffling video playback order (rank 1 plays last)...");
+
+    // Separate rank 1 video from the rest
+    const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
+    const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
+
+    // Shuffle the other videos (Fisher-Yates shuffle)
+    for (let i = otherVideos.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [otherVideos[i], otherVideos[j]] = [otherVideos[j]!, otherVideos[i]!];
+    }
+
+    // Reconstruct array: shuffled videos + rank 1 at the end
+    const shuffledInputs = [...otherVideos, rank1Video];
+
+    console.log(
+      `Playback order: ${shuffledInputs.map((v) => `#${v.rank}`).join(" → ")}`
+    );
+
     // Create ranking video
     console.log("Step 2: Creating ranking video with overlays...");
     const outputFilename = `ranking-${Date.now()}.mp4`;
     const outputPath = await createRankingVideo(
       {
         mainTitle,
-        videos: rankingInputs,
+        videos: shuffledInputs, // Use shuffled order
         ...(width && { width }),
         ...(height && { height }),
       },
@@ -169,6 +189,26 @@ export async function generateFullPreview(req: Request, res: Response) {
       rank: index + 1,
     }));
 
+    // Shuffle video order: randomize positions 2-N, keep rank 1 for last
+    console.log("Shuffling video playback order (rank 1 plays last)...");
+
+    // Separate rank 1 video from the rest
+    const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
+    const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
+
+    // Shuffle the other videos (Fisher-Yates shuffle)
+    for (let i = otherVideos.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [otherVideos[i], otherVideos[j]] = [otherVideos[j]!, otherVideos[i]!];
+    }
+
+    // Reconstruct array: shuffled videos + rank 1 at the end
+    const shuffledInputs = [...otherVideos, rank1Video];
+
+    console.log(
+      `Playback order: ${shuffledInputs.map((v) => `#${v.rank}`).join(" → ")}`
+    );
+
     // Create preview video (same as final, but saved in previews folder)
     console.log("Step 2: Creating preview with FFmpeg overlays...");
     const outputFilename = `preview-full-${Date.now()}.mp4`;
@@ -177,7 +217,7 @@ export async function generateFullPreview(req: Request, res: Response) {
     const outputPath = await createRankingVideo(
       {
         mainTitle,
-        videos: rankingInputs,
+        videos: shuffledInputs, // Use shuffled order
         ...(width && { width }),
         ...(height && { height }),
       },
