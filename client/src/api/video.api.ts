@@ -21,18 +21,55 @@ export const mergeVideos = async (urls: string[]) => {
   return res.data;
 };
 
+// Text segment for rich formatting
+export interface TextSegment {
+  text: string;
+  color?: string;
+  fontSize?: number;
+}
+
 export interface RankingVideoInput {
   url: string;
-  title: string;
+  title: TextSegment[]; // Changed from string to TextSegment[]
 }
 
 export const createRankingVideo = async (
-  mainTitle: string,
+  mainTitle: TextSegment[], // Changed from string to TextSegment[]
   videos: RankingVideoInput[],
   width?: number,
   height?: number
 ) => {
   const res = await axios.post(`${RANKING_API_URL}/create`, {
+    mainTitle,
+    videos,
+    width,
+    height,
+  });
+  return res.data;
+};
+
+export interface PreviewVideoResponse {
+  success: boolean;
+  videoUrl: string;
+  message: string;
+  warnings?: {
+    message: string;
+    failedVideos: Array<{
+      url: string;
+      index: number;
+      error: string;
+      platform: string;
+    }>;
+  };
+}
+
+export const generateFullPreview = async (
+  mainTitle: TextSegment[], // Changed from string to TextSegment[]
+  videos: RankingVideoInput[],
+  width?: number,
+  height?: number
+): Promise<PreviewVideoResponse> => {
+  const res = await axios.post(`${RANKING_API_URL}/generate-preview`, {
     mainTitle,
     videos,
     width,
