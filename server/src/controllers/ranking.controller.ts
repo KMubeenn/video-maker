@@ -214,11 +214,14 @@ export async function createRanking(req: Request, res: Response) {
     const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
     const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
 
-    // Shuffle the other videos (Fisher-Yates shuffle)
-    for (let i = otherVideos.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherVideos[i], otherVideos[j]] = [otherVideos[j]!, otherVideos[i]!];
-    }
+    // Deterministic shuffle to match frontend "random" look
+    // Using simple hash sort based on rank (equivalent to id in frontend)
+    // Formula: ((rank * 13 + 7) % 5)
+    otherVideos.sort((a, b) => {
+      const valA = (a.rank * 13 + 7) % 5;
+      const valB = (b.rank * 13 + 7) % 5;
+      return valA - valB;
+    });
 
     // Reconstruct array: shuffled videos + rank 1 at the end
     const shuffledInputs = [...otherVideos, rank1Video];
@@ -378,11 +381,14 @@ export async function generateFullPreview(req: Request, res: Response) {
     const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
     const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
 
-    // Shuffle the other videos (Fisher-Yates shuffle)
-    for (let i = otherVideos.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherVideos[i], otherVideos[j]] = [otherVideos[j]!, otherVideos[i]!];
-    }
+    // Deterministic shuffle to match frontend "random" look
+    // Using simple hash sort based on rank (equivalent to id in frontend)
+    // Formula: ((rank * 13 + 7) % 5)
+    otherVideos.sort((a, b) => {
+      const valA = (a.rank * 13 + 7) % 5;
+      const valB = (b.rank * 13 + 7) % 5;
+      return valA - valB;
+    });
 
     // Reconstruct array: shuffled videos + rank 1 at the end
     const shuffledInputs = [...otherVideos, rank1Video];

@@ -461,6 +461,8 @@ export async function createRankingVideo(
               .videoFilters(filters)
               .audioCodec("aac")
               .audioBitrate("320k") // High quality audio
+              .audioFrequency(44100) // Standardize sample rate to prevent robot voice on concat
+              .audioChannels(2) // Standardize to stereo
               .videoCodec("libx264")
               .outputOptions(["-preset", "fast", "-crf", "23"]) // Professional quality
               .output(outputPath)
@@ -543,13 +545,13 @@ export async function createRankingVideo(
           "-c:v",
           "libx264",
           "-preset",
-          "ultrafast",
+          "fast",
           "-crf",
-          "28",
+          "23",
           "-c:a",
           "aac",
           "-b:a",
-          "128k",
+          "320k",
         ])
         .output(finalOutputPath)
         .on("start", (cmd) => console.log("Concatenating videos:", cmd))

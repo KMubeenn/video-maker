@@ -202,10 +202,17 @@ export function RealtimePreview({
     const rank1Video = videos[0];
     const otherVideos = videos.slice(1);
 
-    // Deterministic "Shuffle" for preview: Reverse them
-    const playbackOrder = [...otherVideos.reverse(), rank1Video].filter(
-      Boolean
-    );
+    // Random shuffle for other videos (Rank 2-N)
+    // To keep it stable during editing (so it doesn't jump around on every keystroke),
+    // we use a pseudo-random sort based on the video ID or URL length.
+    // If true randomness is desired on every load, we'd need state.
+    // Let's use a simple deterministic shuffle for now that looks random.
+    const shuffledOthers = [...otherVideos].sort((a, b) => {
+      // Simple deterministic hash based shuffle
+      return ((a.id * 13 + 7) % 5) - ((b.id * 13 + 7) % 5);
+    });
+
+    const playbackOrder = [...shuffledOthers, rank1Video].filter(Boolean);
 
     for (const vid of playbackOrder) {
       if (!vid.url) continue;
