@@ -1,3 +1,4 @@
+import path from "path";
 import type { Request, Response } from "express";
 import {
   downloadVideo,
@@ -7,9 +8,100 @@ import {
 } from "../services/downloader.service.js";
 import {
   createRankingVideo,
-  generateRankingPreview,
+  getVideoMetadata,
   type TextSegment,
 } from "../services/ffmpeg.service.js";
+
+// ... existing code ...
+
+/**
+ * Prepare resources for client-side realtime preview
+ * Downloads videos and returns their local paths + metadata
+ */
+export async function preparePreview(req: Request, res: Response) {
+  try {
+    const { videos } = req.body as {
+      videos: { url: string; id: number }[];
+    };
+
+    if (!videos || !Array.isArray(videos)) {
+      return res.status(400).json({ error: "Videos must be an array" });
+    }
+
+    console.log(`Preparing preview resources for ${videos.length} videos...`);
+
+    // Download videos
+    const urls = videos.map((v) => v.url);
+    const downloadResults = await downloadMultipleVideos(urls);
+
+    if (downloadResults.successful.length === 0) {
+      return res.status(400).json({
+        error: "All video downloads failed",
+        failedVideos: downloadResults.failed,
+      });
+    }
+
+    // Get metadata for each downloaded video
+    const readyVideos = await Promise.all(
+      downloadResults.successful.map(async (downloaded) => {
+        const originalIndex = urls.findIndex(
+          (url) => url === downloaded.originalUrl
+        );
+        const originalId = videos[originalIndex]?.id;
+
+        try {
+          const metadata = await getVideoMetadata(downloaded.filePath);
+          // Convert absolute path to relative path served by static middleware
+          // Assuming uploads are served at /uploads
+          const parts = downloaded.filePath.split("uploads");
+          const relativePath =
+            parts.length > 1
+              ? parts[1]
+              : `/${path.basename(downloaded.filePath)}`;
+          const servedUrl = `http://localhost:4000/uploads${(
+            relativePath || ""
+          ).replace(/\\/g, "/")}`;
+
+          return {
+            id: originalId,
+            url: servedUrl,
+            duration: metadata.duration,
+            width: metadata.width,
+            height: metadata.height,
+            originalUrl: downloaded.originalUrl,
+          };
+        } catch (err) {
+          console.error(
+            `Failed to get metadata for ${downloaded.filePath}:`,
+            err
+          );
+          return null;
+        }
+      })
+    );
+
+    const successfulVideos = readyVideos.filter((v) => v !== null);
+
+    res.json({
+      success: true,
+      videos: successfulVideos,
+      warnings:
+        downloadResults.failed.length > 0
+          ? {
+              message: `${downloadResults.failed.length} video(s) failed to download`,
+              failedVideos: downloadResults.failed,
+            }
+          : undefined,
+    });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("Prepare preview failed:", err);
+    res.status(500).json({
+      error: "Failed to prepare preview",
+      details: err.message,
+    });
+  }
+}
 
 export interface VideoRankInput {
   url: string;
@@ -122,11 +214,14 @@ export async function createRanking(req: Request, res: Response) {
     const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
     const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
 
-    // Shuffle the other videos (Fisher-Yates shuffle)
-    for (let i = otherVideos.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherVideos[i], otherVideos[j]] = [otherVideos[j]!, otherVideos[i]!];
-    }
+    // Deterministic shuffle to match frontend "random" look
+    // Using simple hash sort based on rank (equivalent to id in frontend)
+    // Formula: ((rank * 13 + 7) % 5)
+    otherVideos.sort((a, b) => {
+      const valA = (a.rank * 13 + 7) % 5;
+      const valB = (b.rank * 13 + 7) % 5;
+      return valA - valB;
+    });
 
     // Reconstruct array: shuffled videos + rank 1 at the end
     const shuffledInputs = [...otherVideos, rank1Video];
@@ -286,11 +381,14 @@ export async function generateFullPreview(req: Request, res: Response) {
     const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
     const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
 
-    // Shuffle the other videos (Fisher-Yates shuffle)
-    for (let i = otherVideos.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherVideos[i], otherVideos[j]] = [otherVideos[j]!, otherVideos[i]!];
-    }
+    // Deterministic shuffle to match frontend "random" look
+    // Using simple hash sort based on rank (equivalent to id in frontend)
+    // Formula: ((rank * 13 + 7) % 5)
+    otherVideos.sort((a, b) => {
+      const valA = (a.rank * 13 + 7) % 5;
+      const valB = (b.rank * 13 + 7) % 5;
+      return valA - valB;
+    });
 
     // Reconstruct array: shuffled videos + rank 1 at the end
     const shuffledInputs = [...otherVideos, rank1Video];

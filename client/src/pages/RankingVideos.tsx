@@ -5,6 +5,7 @@ import {
   type TextSegment,
 } from "../api/video.api";
 import { RichTextInput } from "../components/RichTextInput";
+import { RealtimePreview } from "../components/RealtimePreview";
 import "./RankingVideos.css";
 
 interface VideoInput extends Omit<RankingVideoInput, "title"> {
@@ -198,6 +199,11 @@ export default function RankingVideos() {
     videoUrl: null,
     error: null,
   });
+
+  // Toggle View State
+  const [previewMode, setPreviewMode] = useState<"realtime" | "export">(
+    "realtime"
+  );
 
   const handleVideoCountChange = (count: 3 | 4 | 5 | 6) => {
     setVideoCount(count);
@@ -531,14 +537,60 @@ export default function RankingVideos() {
 
         {/* Right Column - Preview (sticky) */}
         <div className="preview-column">
-          <VideoPreviewPanel
-            mainTitle={mainTitle}
-            videos={videos}
-            width={width}
-            height={height}
-            previewState={previewState}
-            onGeneratePreview={handleGeneratePreview}
-          />
+          <div
+            className="preview-mode-toggle"
+            style={{ display: "flex", gap: 10, marginBottom: 15 }}
+          >
+            <button
+              style={{
+                flex: 1,
+                padding: 10,
+                border: "none",
+                borderRadius: 8,
+                backgroundColor:
+                  previewMode === "realtime" ? "#06AED5" : "#333",
+                color: "white",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+              onClick={() => setPreviewMode("realtime")}
+            >
+              ⚡ Realtime Preview
+            </button>
+            <button
+              style={{
+                flex: 1,
+                padding: 10,
+                border: "none",
+                borderRadius: 8,
+                backgroundColor: previewMode === "export" ? "#06AED5" : "#333",
+                color: "white",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+              onClick={() => setPreviewMode("export")}
+            >
+              🎬 Final Export
+            </button>
+          </div>
+
+          {previewMode === "realtime" ? (
+            <RealtimePreview
+              mainTitle={mainTitle}
+              videos={videos}
+              width={width}
+              height={height}
+            />
+          ) : (
+            <VideoPreviewPanel
+              mainTitle={mainTitle}
+              videos={videos}
+              width={width}
+              height={height}
+              previewState={previewState}
+              onGeneratePreview={handleGeneratePreview}
+            />
+          )}
         </div>
       </div>
     </div>
