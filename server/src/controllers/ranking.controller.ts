@@ -1,3 +1,4 @@
+import path from "path";
 import type { Request, Response } from "express";
 import {
   downloadVideo,
@@ -8,8 +9,100 @@ import {
 import {
   createRankingVideo,
   generateRankingPreview,
+  getVideoMetadata,
   type TextSegment,
 } from "../services/ffmpeg.service.js";
+
+// ... existing code ...
+
+/**
+ * Prepare resources for client-side realtime preview
+ * Downloads videos and returns their local paths + metadata
+ */
+export async function preparePreview(req: Request, res: Response) {
+  try {
+    const { videos } = req.body as {
+      videos: { url: string; id: number }[];
+    };
+
+    if (!videos || !Array.isArray(videos)) {
+      return res.status(400).json({ error: "Videos must be an array" });
+    }
+
+    console.log(`Preparing preview resources for ${videos.length} videos...`);
+
+    // Download videos
+    const urls = videos.map((v) => v.url);
+    const downloadResults = await downloadMultipleVideos(urls);
+
+    if (downloadResults.successful.length === 0) {
+      return res.status(400).json({
+        error: "All video downloads failed",
+        failedVideos: downloadResults.failed,
+      });
+    }
+
+    // Get metadata for each downloaded video
+    const readyVideos = await Promise.all(
+      downloadResults.successful.map(async (downloaded) => {
+        const originalIndex = urls.findIndex(
+          (url) => url === downloaded.originalUrl
+        );
+        const originalId = videos[originalIndex]?.id;
+
+        try {
+          const metadata = await getVideoMetadata(downloaded.filePath);
+          // Convert absolute path to relative path served by static middleware
+          // Assuming uploads are served at /uploads
+          const parts = downloaded.filePath.split("uploads");
+          const relativePath =
+            parts.length > 1
+              ? parts[1]
+              : `/${path.basename(downloaded.filePath)}`;
+          const servedUrl = `http://localhost:4000/uploads${(
+            relativePath || ""
+          ).replace(/\\/g, "/")}`;
+
+          return {
+            id: originalId,
+            url: servedUrl,
+            duration: metadata.duration,
+            width: metadata.width,
+            height: metadata.height,
+            originalUrl: downloaded.originalUrl,
+          };
+        } catch (err) {
+          console.error(
+            `Failed to get metadata for ${downloaded.filePath}:`,
+            err
+          );
+          return null;
+        }
+      })
+    );
+
+    const successfulVideos = readyVideos.filter((v) => v !== null);
+
+    res.json({
+      success: true,
+      videos: successfulVideos,
+      warnings:
+        downloadResults.failed.length > 0
+          ? {
+              message: `${downloadResults.failed.length} video(s) failed to download`,
+              failedVideos: downloadResults.failed,
+            }
+          : undefined,
+    });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("Prepare preview failed:", err);
+    res.status(500).json({
+      error: "Failed to prepare preview",
+      details: err.message,
+    });
+  }
+}
 
 export interface VideoRankInput {
   url: string;

@@ -13,5 +13,9 @@ app.use("/api/video", videoRoutes);
 app.use("/api/merge", mergeRoutes);
 app.use("/api/ranking", rankingRoutes);
 app.use("/outputs", express.static("outputs"));
+app.use("/uploads", express.static("uploads"));
+
+// Trigger server restart
+console.log("Server restarting...");
 
 export default app;

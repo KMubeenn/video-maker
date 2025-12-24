@@ -820,3 +820,39 @@ export async function generateRankingPreview(
     });
   });
 }
+
+/**
+ * Get video metadata (duration, width, height)
+ */
+export function getVideoMetadata(
+  filePath: string
+): Promise<{ duration: number; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      const videoStream = metadata.streams.find(
+        (s) => s.codec_type === "video"
+      );
+      if (!videoStream) {
+        reject(new Error("No video stream found"));
+        return;
+      }
+
+      const duration = metadata.format.duration || videoStream.duration;
+      if (!duration) {
+        reject(new Error("Could not determine video duration"));
+        return;
+      }
+
+      resolve({
+        duration: parseFloat(String(duration)),
+        width: videoStream.width || 0,
+        height: videoStream.height || 0,
+      });
+    });
+  });
+}
