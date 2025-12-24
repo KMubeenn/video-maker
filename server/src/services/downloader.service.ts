@@ -3,6 +3,7 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import ytdl from "@distube/ytdl-core";
+import { videoCache } from "./cache.service.js";
 
 const execPromise = promisify(exec);
 
@@ -10,6 +11,18 @@ export interface DownloadResult {
   filePath: string;
   platform: string;
   originalUrl: string;
+}
+
+export interface DownloadError {
+  url: string;
+  index: number;
+  error: string;
+  platform: string;
+}
+
+export interface MultiDownloadResult {
+  successful: DownloadResult[];
+  failed: DownloadError[];
 }
 
 /**
@@ -132,33 +145,93 @@ export async function downloadVideo(
 }
 
 /**
- * Download multiple videos sequentially
+ * Download multiple videos sequentially, using cache when available
+ * Now handles partial failures - returns both successful and failed downloads
  */
 export async function downloadMultipleVideos(
   urls: string[]
-): Promise<DownloadResult[]> {
-  const results: DownloadResult[] = [];
+): Promise<MultiDownloadResult> {
+  const successful: DownloadResult[] = [];
+  const failed: DownloadError[] = [];
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
     if (!url) {
-      throw new Error(`URL at index ${i} is undefined or empty`);
+      failed.push({
+        url: url || "undefined",
+        index: i,
+        error: "URL is undefined or empty",
+        platform: "unknown",
+      });
+      continue;
     }
 
+    const platform = detectPlatform(url);
+
     try {
+      // Check if video is cached
+      const cachedPath = videoCache.get(url);
+      if (cachedPath) {
+        console.log(`Using cached video for: ${url}`);
+        successful.push({
+          filePath: cachedPath,
+          platform,
+          originalUrl: url,
+        });
+        continue;
+      }
+
+      // Not cached, download it
+      console.log(`Cache miss, downloading: ${url}`);
       const result = await downloadVideo(url, i);
-      results.push(result);
+
+      // Cache the downloaded video
+      videoCache.set(url, result.filePath);
+
+      // Update result to use cached path
+      const cachedPath2 = videoCache.get(url);
+      if (cachedPath2) {
+        successful.push({
+          ...result,
+          filePath: cachedPath2,
+        });
+      } else {
+        successful.push(result);
+      }
     } catch (error: unknown) {
-      // If one download fails, clean up already downloaded files
-      cleanupFiles(results.map((r) => r.filePath));
       const err = error as Error;
-      throw new Error(
-        `Failed to download video ${i + 1}/${urls.length}: ${err.message}`
+
+      // Extract more meaningful error message
+      let errorMessage = err.message;
+
+      // Check for specific Instagram errors
+      if (
+        errorMessage.includes("inappropriate") ||
+        errorMessage.includes("unavailable for certain audiences")
+      ) {
+        errorMessage =
+          "Content is age-restricted or unavailable for certain audiences";
+      } else if (errorMessage.includes("private")) {
+        errorMessage = "Content is private and requires authentication";
+      } else if (errorMessage.includes("not available")) {
+        errorMessage = "Video not available or has been removed";
+      }
+
+      console.error(
+        `Failed to download video ${i + 1}/${urls.length} (${url}):`,
+        errorMessage
       );
+
+      failed.push({
+        url,
+        index: i,
+        error: errorMessage,
+        platform,
+      });
     }
   }
 
-  return results;
+  return { successful, failed };
 }
 
 /**
