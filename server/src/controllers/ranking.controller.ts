@@ -8,7 +8,6 @@ import {
 } from "../services/downloader.service.js";
 import {
   createRankingVideo,
-  generateRankingPreview,
   getVideoMetadata,
   type TextSegment,
 } from "../services/ffmpeg.service.js";
