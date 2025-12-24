@@ -363,49 +363,150 @@ export function RealtimePreview({
   }, [videos, mainTitle, width, height, buildTimeline]);
 
   // ... Render Loop and Audio Control ...
+
+  // Helper: Normalize colors to match FFmpeg backend
+  const normalizeColor = (color: string | undefined): string => {
+    if (!color) return "white";
+    const map: Record<string, string> = {
+      "#FFD700": "#FFC700",
+      "#FF6B6B": "#E63946",
+      "#4ECDC4": "#06AED5",
+      "#95E1D3": "#2D9E6D",
+    };
+    return map[color] || color;
+  };
+
+  // Helper: Measure text segment width
+  const measureSegment = (
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    fontSize: number
+  ) => {
+    ctx.font = `${fontSize}px Impact, Arial, sans-serif`;
+    return ctx.measureText(text).width;
+  };
+
+  // Helper: Wrap text into lines of segments
+  const wrapTextStats = (
+    ctx: CanvasRenderingContext2D,
+    segments: TextSegment[],
+    maxWidth: number,
+    defaultFontSize: number
+  ) => {
+    const lines: TextSegment[][] = [];
+    let currentLine: TextSegment[] = [];
+    let currentLineWidth = 0;
+
+    for (const seg of segments) {
+      const fontSize = seg.fontSize || defaultFontSize;
+      const words = seg.text.split(" ");
+
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        // Re-add space if not last word, or if original seg ended with space (simplification: assume space between words)
+        const wordWithSpace = word + (i < words.length - 1 ? " " : "");
+
+        const wordW = measureSegment(ctx, wordWithSpace, fontSize);
+
+        if (currentLineWidth + wordW > maxWidth && currentLine.length > 0) {
+          // If it's just a space causing overflow, ignore? No, standard wrapping.
+          lines.push(currentLine);
+          currentLine = [{ ...seg, text: wordWithSpace }];
+          currentLineWidth = wordW;
+        } else {
+          currentLine.push({ ...seg, text: wordWithSpace });
+          currentLineWidth += wordW;
+        }
+      }
+    }
+    if (currentLine.length > 0) lines.push(currentLine);
+    return lines;
+  };
+
   const drawOverlay = (ctx: CanvasRenderingContext2D, overlay: TextOverlay) => {
     ctx.save();
     const fontBase = "Impact, Arial, sans-serif";
+    const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
 
-    let currentX = typeof overlay.x === "number" ? overlay.x : 0;
-    const startY = overlay.y;
+    if (overlay.type === "main-title") {
+      // Main Title: Centered, Wrapped, Box, No Stroke
+      const fontSize = 52;
+      const maxWidth = 850;
+      const lineHeight = fontSize + 10;
+      const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
 
-    if (overlay.x === "center") {
-      let totalW = 0;
-      overlay.text.forEach((seg) => {
-        ctx.font = `${seg.fontSize || 52}px ${fontBase}`;
-        totalW += ctx.measureText(seg.text).width;
-      });
-      currentX = (width - totalW) / 2;
-
-      if (overlay.type === "main-title") {
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(currentX - 20, startY - 52, totalW + 40, 52 + 20);
+      // Center vertically around Y=90
+      let startY = 90;
+      if (lines.length > 1) {
+        startY -= ((lines.length - 1) * lineHeight) / 2;
       }
-    }
 
-    overlay.text.forEach((seg) => {
-      ctx.font = `${seg.fontSize || 52}px ${fontBase}`;
-      ctx.fillStyle = seg.color || "white";
-      ctx.shadowColor = "black";
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
+      lines.forEach((line, lineIdx) => {
+        let lineWidth = 0;
+        line.forEach(
+          (s) =>
+            (lineWidth += measureSegment(ctx, s.text, s.fontSize || fontSize))
+        );
+        let currentX = (width - lineWidth) / 2;
+        const currentY = startY + lineIdx * lineHeight;
 
-      ctx.fillText(seg.text, currentX, startY);
+        // Draw Box (One box per line) - FFmpeg style box padding ~12
+        // Currently using simplistic box per line
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(currentX - 12, currentY - 52, lineWidth + 24, 52 + 24);
 
-      if (
-        overlay.type === "ranking-number" ||
-        overlay.type === "ranking-title"
-      ) {
+        line.forEach((seg) => {
+          ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+          ctx.fillStyle = getSegColor(seg);
+          ctx.fillText(seg.text, currentX, currentY);
+          currentX += ctx.measureText(seg.text).width;
+        });
+      });
+    } else if (overlay.type === "ranking-title") {
+      // Video Title: Left Aligned, Wrapped, Stroke 3px, No Shadow
+      const fontSize = 48;
+      const maxWidth = 700;
+      const lineHeight = fontSize + 8;
+      const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
+
+      let currentY = overlay.y;
+
+      lines.forEach((line) => {
+        let currentX = typeof overlay.x === "number" ? overlay.x : 90;
+        line.forEach((seg) => {
+          ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+          ctx.fillStyle = getSegColor(seg);
+
+          // Stroke
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 3;
+          ctx.lineJoin = "round";
+          ctx.strokeText(seg.text, currentX, currentY);
+          // Fill
+          ctx.fillText(seg.text, currentX, currentY);
+          currentX += ctx.measureText(seg.text).width;
+        });
+        currentY += lineHeight;
+      });
+    } else if (overlay.type === "ranking-number") {
+      // Rank Number: Simple, 52px, Stroke 3px
+      const fontSize = 52;
+      let currentX = 30;
+      const currentY = overlay.y;
+
+      overlay.text.forEach((seg) => {
+        ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+        ctx.fillStyle = getSegColor(seg);
+
         ctx.strokeStyle = "black";
         ctx.lineWidth = 3;
-        ctx.strokeText(seg.text, currentX, startY);
-        ctx.fillText(seg.text, currentX, startY);
-      }
+        ctx.lineJoin = "round";
+        ctx.strokeText(seg.text, currentX, currentY);
 
-      currentX += ctx.measureText(seg.text).width;
-    });
+        ctx.fillText(seg.text, currentX, currentY);
+        currentX += ctx.measureText(seg.text).width;
+      });
+    }
 
     ctx.restore();
   };
@@ -458,7 +559,14 @@ export function RealtimePreview({
           const dx = (width - scaledW) / 2;
           const dy = titleHeight + (videoAreaHeight - scaledH) / 2;
 
+          // Clip video to strictly be below titleHeight
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, titleHeight, width, videoAreaHeight);
+          ctx.clip();
+
           ctx.drawImage(videoEl, dx, dy, scaledW, scaledH);
+          ctx.restore();
         }
       }
     }
