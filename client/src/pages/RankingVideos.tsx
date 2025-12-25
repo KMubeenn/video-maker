@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import {
   generateFullPreview,
   uploadVideoFile,
@@ -9,6 +9,18 @@ import {
 import { RichTextInput } from "../components/RichTextInput";
 import { RealtimePreview } from "../components/RealtimePreview";
 import { VideoEditor } from "../components/VideoEditor";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, RefreshCw, Upload, Scissors, Music, Image, Play, Trophy, Database, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { videoLibraryApi, type Video as VideoLibraryVideo } from "../api/video-library.api";
+import { teamApi } from "../api/team.api";
+import { useAuth } from "../hooks/useAuth";
 import "./RankingVideos.css";
 
 interface VideoInput extends Omit<RankingVideoInput, "title"> {
@@ -168,6 +180,7 @@ function VideoPreviewPanel({
 }
 
 export default function RankingVideos() {
+  const { user } = useAuth();
   const [mainTitle, setMainTitle] = useState<TextSegment[]>([
     { text: "", color: "white", fontSize: 52 },
   ]);
@@ -446,11 +459,125 @@ export default function RankingVideos() {
   };
 
   const getPlatformIcon = (url: string) => {
-    if (url.includes("tiktok")) return "🎵";
-    if (url.includes("instagram")) return "📸";
-    if (url.includes("youtube") || url.includes("youtu.be")) return "▶️";
-    return "🎬";
+    if (url.includes("tiktok")) return <Music className="h-5 w-5" />;
+    if (url.includes("instagram")) return <Image className="h-5 w-5" />;
+    if (url.includes("youtube") || url.includes("youtu.be")) return <Play className="h-5 w-5" />;
+    return null;
   };
+
+  // Auto-populate from database
+  const [showAutoPopulateDialog, setShowAutoPopulateDialog] = useState(false);
+  const [availableVideos, setAvailableVideos] = useState<VideoLibraryVideo[]>([]);
+  const [loadingVideos, setLoadingVideos] = useState(false);
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string>("all");
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+
+  const loadAvailableVideos = async () => {
+    try {
+      setLoadingVideos(true);
+      // Load user videos
+      const userVideos = await videoLibraryApi.list();
+      
+      // Load team videos from all teams user is a member of
+      let teamVideos: VideoLibraryVideo[] = [];
+      if (user?.id) {
+        try {
+          const teams = await teamApi.list();
+          const teamVideoPromises = teams
+            .filter((team) => team.id) // Only process teams with IDs
+            .map((team) => 
+              videoLibraryApi.list(team.id!).catch(() => [])
+            );
+          const allTeamVideos = await Promise.all(teamVideoPromises);
+          teamVideos = allTeamVideos.flat();
+        } catch (err) {
+          // If team loading fails, just use user videos
+          console.warn("Failed to load team videos:", err);
+        }
+      }
+      
+      // Combine and deduplicate by ID
+      const allVideos = [...userVideos, ...teamVideos];
+      const uniqueVideos = Array.from(
+        new Map(allVideos.map((v) => [v.id, v])).values()
+      );
+      
+      setAvailableVideos(uniqueVideos);
+    } catch (err: any) {
+      setError(err.message || "Failed to load videos");
+    } finally {
+      setLoadingVideos(false);
+    }
+  };
+
+  const handleOpenAutoPopulate = () => {
+    setShowAutoPopulateDialog(true);
+    setSelectedVideoIds(new Set());
+    setSelectedTagFilter("all");
+    // Load videos when dialog opens - teamId can be passed from route or context
+    loadAvailableVideos();
+  };
+
+  const handleAutoPopulate = () => {
+    // Filter videos by selected tag if any
+    let filteredVideos = availableVideos;
+    if (selectedTagFilter && selectedTagFilter !== "all") {
+      filteredVideos = availableVideos.filter((v) =>
+        v.tags?.some((tag) =>
+          tag.toLowerCase().includes(selectedTagFilter.toLowerCase())
+        )
+      );
+    }
+
+    // If specific videos are selected, use those; otherwise use filtered list
+    const videosToUse = selectedVideoIds.size > 0
+      ? filteredVideos.filter((v) => v.id && selectedVideoIds.has(v.id))
+      : filteredVideos.slice(0, videoCount);
+
+    // Populate videos array
+    const newVideos: VideoInput[] = [];
+    for (let i = 0; i < videoCount; i++) {
+      const dbVideo = videosToUse[i];
+      if (dbVideo) {
+        // Convert database video to VideoInput format
+        const titleSegments: TextSegment[] = dbVideo.title
+          ? [{ text: dbVideo.title, color: "white", fontSize: 48 }]
+          : [{ text: "", color: "white", fontSize: 48 }];
+        
+        newVideos.push({
+          id: i + 1,
+          url: dbVideo.clip_url,
+          title: titleSegments,
+        });
+      } else {
+        // Keep existing video or create empty one
+        newVideos.push(
+          videos[i] || {
+            id: i + 1,
+            url: "",
+            title: [{ text: "", color: "white", fontSize: 48 }],
+          }
+        );
+      }
+    }
+    setVideos(newVideos);
+    setShowAutoPopulateDialog(false);
+    setError("");
+  };
+
+  // Get unique tags from available videos
+  const allTags = Array.from(
+    new Set(availableVideos.flatMap((v) => v.tags || []))
+  ).sort();
+
+  // Filter videos for display in dialog
+  const displayVideos = selectedTagFilter && selectedTagFilter !== "all"
+    ? availableVideos.filter((v) =>
+        v.tags?.some((tag) =>
+          tag.toLowerCase().includes(selectedTagFilter.toLowerCase())
+        )
+      )
+    : availableVideos;
 
   return (
     <div className="ranking-container">
@@ -480,27 +607,40 @@ export default function RankingVideos() {
 
           {/* Video Count Selector */}
           <div className="count-selector">
-            <label className="section-label">Number of Videos</label>
+            <Label className="section-label">Number of Videos</Label>
             <div className="count-buttons">
               {([3, 4, 5, 6] as const).map((count) => (
-                <button
+                <Button
                   key={count}
-                  className={`count-btn ${
-                    videoCount === count ? "active" : ""
-                  }`}
+                  variant={videoCount === count ? "default" : "outline"}
+                  className={cn(
+                    "count-btn flex flex-col h-auto py-4",
+                    videoCount === count && "active"
+                  )}
                   onClick={() => handleVideoCountChange(count)}
                   disabled={false}
                 >
-                  <span className="count-number">{count}</span>
-                  <span className="count-label">Videos</span>
-                </button>
+                  <span className="count-number text-xl font-bold">{count}</span>
+                  <span className="count-label text-xs">Videos</span>
+                </Button>
               ))}
             </div>
           </div>
 
           {/* Video Inputs */}
           <div className="videos-section">
-            <label className="section-label">Ranking Videos</label>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="section-label">Ranking Videos</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleOpenAutoPopulate}
+                className="gap-2"
+              >
+                <Database className="h-4 w-4" />
+                Auto-populate from Library
+              </Button>
+            </div>
             <div className="first-to-play-hint">
               💡 Select which video plays first (Rank #1 always plays last)
             </div>
@@ -539,26 +679,40 @@ export default function RankingVideos() {
                       </label>
                     ) : (
                       <div
-                        className="rank-one-indicator"
+                        className="rank-one-indicator flex items-center justify-center"
                         title="Rank #1 always plays last"
                       >
-                        🏆
+                        <Trophy className="h-6 w-6" />
                       </div>
                     )}
                   </div>
-                  <div className={`rank-badge ${hasFailed ? "error" : ""}`}>
+                  <Badge
+                    variant={hasFailed ? "destructive" : "default"}
+                    className={cn(
+                      "rank-badge min-w-[40px] h-10 text-lg font-bold flex items-center justify-center",
+                      hasFailed && "error"
+                    )}
+                  >
                     #{index + 1}
-                  </div>
+                  </Badge>
                   <div className="video-inputs">
                     <div className="input-wrapper">
-                      <div className={`input-icon ${hasFailed ? "error" : ""}`}>
-                        {hasFailed
-                          ? "⚠️"
-                          : getPlatformIcon(video.url) || `${index + 1}`}
+                      <div className={cn(
+                        "input-icon flex items-center justify-center",
+                        hasFailed && "error"
+                      )}>
+                        {hasFailed ? (
+                          "⚠️"
+                        ) : (
+                          getPlatformIcon(video.url)
+                        )}
                       </div>
-                      <input
+                      <Input
                         type="url"
-                        className={`url-input ${hasFailed ? "error" : ""}`}
+                        className={cn(
+                          "url-input flex-1",
+                          hasFailed && "error border-destructive"
+                        )}
                         placeholder={`Video ${
                           index + 1
                         } URL (TikTok, Instagram, YouTube)`}
@@ -568,38 +722,41 @@ export default function RankingVideos() {
                         }
                         disabled={false}
                       />
-                      <button
-                        className="upload-icon-btn"
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="upload-icon-btn h-10 w-10"
                         onClick={() => handleUploadClick(index)}
                         disabled={uploadingIndex !== null}
                         title="Upload local video"
                       >
                         {uploadingIndex === index ? (
-                          <span className="mini-spinner"></span>
+                          <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          "📂"
+                          <Upload className="h-4 w-4" />
                         )}
-                      </button>
-                      <button
-                        className="upload-icon-btn"
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="upload-icon-btn h-10 w-10"
                         onClick={() => handleEditClick(index)}
                         disabled={!video.url || loadingEditorIndex === index}
                         title="Trim/Edit Video"
                       >
                         {loadingEditorIndex === index ? (
-                          <span className="mini-spinner"></span>
+                          <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          "✂️"
+                          <Scissors className="h-4 w-4" />
                         )}
-                      </button>
+                      </Button>
                     </div>
                     {hasFailed && failureInfo && (
-                      <div className="inline-error-message">
-                        <span className="inline-error-icon">⚠️</span>
-                        <span className="inline-error-text">
+                      <Alert variant="destructive" className="inline-error-message mt-2">
+                        <AlertDescription className="inline-error-text">
                           {failureInfo.error}
-                        </span>
-                      </div>
+                        </AlertDescription>
+                      </Alert>
                     )}
                     <RichTextInput
                       value={video.title}
@@ -626,120 +783,106 @@ export default function RankingVideos() {
 
           {/* Video Dimensions */}
           <div className="dimensions-section">
-            <label className="section-label">Video Dimensions</label>
+            <Label className="section-label">Video Dimensions</Label>
             <div className="dimension-controls">
-              <button
-                className={`dimension-btn ${
-                  width === 1080 && height === 1920 ? "active" : ""
-                }`}
+              <Button
+                variant={width === 1080 && height === 1920 ? "default" : "outline"}
+                className={cn(
+                  "dimension-btn flex flex-col h-auto py-4",
+                  width === 1080 && height === 1920 && "active"
+                )}
                 onClick={() => {
                   setWidth(1080);
                   setHeight(1920);
                 }}
                 disabled={false}
               >
-                <span className="dimension-icon">📱</span>
+                <span className="dimension-icon text-2xl">📱</span>
                 <span>Vertical</span>
-                <span className="dimension-size">1080×1920</span>
-              </button>
-              <button
-                className={`dimension-btn ${
-                  width === 1920 && height === 1080 ? "active" : ""
-                }`}
+                <span className="dimension-size text-xs">1080×1920</span>
+              </Button>
+              <Button
+                variant={width === 1920 && height === 1080 ? "default" : "outline"}
+                className={cn(
+                  "dimension-btn flex flex-col h-auto py-4",
+                  width === 1920 && height === 1080 && "active"
+                )}
                 onClick={() => {
                   setWidth(1920);
                   setHeight(1080);
                 }}
                 disabled={false}
               >
-                <span className="dimension-icon">🖥️</span>
+                <span className="dimension-icon text-2xl">🖥️</span>
                 <span>Horizontal</span>
-                <span className="dimension-size">1920×1080</span>
-              </button>
-              <button
-                className={`dimension-btn ${
-                  width === 1080 && height === 1080 ? "active" : ""
-                }`}
+                <span className="dimension-size text-xs">1920×1080</span>
+              </Button>
+              <Button
+                variant={width === 1080 && height === 1080 ? "default" : "outline"}
+                className={cn(
+                  "dimension-btn flex flex-col h-auto py-4",
+                  width === 1080 && height === 1080 && "active"
+                )}
                 onClick={() => {
                   setWidth(1080);
                   setHeight(1080);
                 }}
                 disabled={false}
               >
-                <span className="dimension-icon">⬜</span>
+                <span className="dimension-icon text-2xl">⬜</span>
                 <span>Square</span>
-                <span className="dimension-size">1080×1080</span>
-              </button>
+                <span className="dimension-size text-xs">1080×1080</span>
+              </Button>
             </div>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="error-message">
-              <span className="error-icon">⚠️</span>
-              {error}
-            </div>
+            <Alert variant="destructive" className="error-message">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
           {/* Regenerate Preview Button */}
           <div className="create-button-container">
-            <button
-              className="create-button"
+            <Button
+              className="create-button w-full"
               onClick={handleGeneratePreview}
               disabled={previewState.isGenerating}
+              size="lg"
             >
               {previewState.isGenerating ? (
                 <>
-                  <span className="spinner"></span>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Generating...
                 </>
               ) : (
                 <>
-                  <span className="create-icon">🔄</span>
+                  <RefreshCw className="mr-2 h-5 w-5" />
                   Regenerate Export
                 </>
               )}
-            </button>
+            </Button>
           </div>
         </div>
 
         {/* Right Column - Preview (sticky) */}
         <div className="preview-column">
-          <div
-            className="preview-mode-toggle"
-            style={{ display: "flex", gap: 10, marginBottom: 15 }}
-          >
-            <button
-              style={{
-                flex: 1,
-                padding: 10,
-                border: "none",
-                borderRadius: 8,
-                backgroundColor:
-                  previewMode === "realtime" ? "#06AED5" : "#333",
-                color: "white",
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
+          <div className="preview-mode-toggle flex gap-2 mb-4">
+            <Button
+              variant={previewMode === "realtime" ? "default" : "outline"}
+              className="flex-1"
               onClick={() => setPreviewMode("realtime")}
             >
               ⚡ Realtime Preview
-            </button>
-            <button
-              style={{
-                flex: 1,
-                padding: 10,
-                border: "none",
-                borderRadius: 8,
-                backgroundColor: previewMode === "export" ? "#06AED5" : "#333",
-                color: "white",
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
+            </Button>
+            <Button
+              variant={previewMode === "export" ? "default" : "outline"}
+              className="flex-1"
               onClick={() => setPreviewMode("export")}
             >
               🎬 Final Export
-            </button>
+            </Button>
           </div>
 
           {previewMode === "realtime" ? (
@@ -780,6 +923,135 @@ export default function RankingVideos() {
           initialCropHeight={videos[editingVideoIndex].cropHeight}
         />
       )}
+
+      {/* Auto-populate Dialog */}
+      <Dialog open={showAutoPopulateDialog} onOpenChange={setShowAutoPopulateDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Auto-populate from Video Library</DialogTitle>
+            <DialogDescription>
+              Select videos from your library to auto-populate the ranking. You can filter by tags and edit them after selection.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Tag Filter */}
+            <div className="space-y-2">
+              <Label>Filter by Tag (optional)</Label>
+              <Select value={selectedTagFilter} onValueChange={setSelectedTagFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All tags" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All tags</SelectItem>
+                  {allTags.map((tag) => (
+                    <SelectItem key={tag} value={tag}>
+                      {tag}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Videos List */}
+            {loadingVideos ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="ml-2">Loading videos...</span>
+              </div>
+            ) : displayVideos.length === 0 ? (
+              <Alert>
+                <AlertDescription>
+                  No videos found{selectedTagFilter && selectedTagFilter !== "all" ? ` with tag "${selectedTagFilter}"` : ""}. 
+                  {selectedTagFilter && selectedTagFilter !== "all" && (
+                    <Button
+                      variant="link"
+                      className="p-0 h-auto ml-1"
+                      onClick={() => setSelectedTagFilter("all")}
+                    >
+                      Clear filter
+                    </Button>
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                <div className="text-sm text-muted-foreground mb-2">
+                  {displayVideos.length} video(s) found. Select up to {videoCount} videos or click "Populate All" to use the first {videoCount}.
+                </div>
+                {displayVideos.slice(0, 20).map((video) => (
+                  <div
+                    key={video.id}
+                    className={cn(
+                      "flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors",
+                      selectedVideoIds.has(video.id || "") && "bg-accent border-primary"
+                    )}
+                    onClick={() => {
+                      if (!video.id) return;
+                      setSelectedVideoIds((prev) => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(video.id!)) {
+                          newSet.delete(video.id!);
+                        } else {
+                          if (newSet.size < videoCount) {
+                            newSet.add(video.id!);
+                          }
+                        }
+                        return newSet;
+                      });
+                    }}
+                  >
+                    <div className={cn(
+                      "w-5 h-5 border-2 rounded flex items-center justify-center",
+                      selectedVideoIds.has(video.id || "") && "bg-primary border-primary"
+                    )}>
+                      {selectedVideoIds.has(video.id || "") && (
+                        <Check className="h-3 w-3 text-primary-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{video.title || "Untitled"}</div>
+                      <div className="text-sm text-muted-foreground truncate">{video.clip_url}</div>
+                      {video.tags && video.tags.length > 0 && (
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          {video.tags.map((tag) => (
+                            <Badge key={tag} variant="secondary" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {displayVideos.length > 20 && (
+                  <div className="text-sm text-muted-foreground text-center py-2">
+                    Showing first 20 videos. Use tag filter to narrow results.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="outline"
+                onClick={() => setShowAutoPopulateDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAutoPopulate}
+                disabled={loadingVideos || displayVideos.length === 0}
+              >
+                {selectedVideoIds.size > 0
+                  ? `Populate Selected (${selectedVideoIds.size})`
+                  : `Populate First ${videoCount}`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
