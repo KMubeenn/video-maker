@@ -11,6 +11,11 @@ export interface TimelineClip {
   volume: number;
   videoElement?: HTMLVideoElement; // Reference to the DOM element
   audioBuffer?: AudioBuffer; // Decoded audio
+  // Crop values (in source video pixels, applied after trim)
+  cropX?: number; // Crop X offset from left edge
+  cropY?: number; // Crop Y offset from top edge
+  cropWidth?: number; // Crop region width
+  cropHeight?: number; // Crop region height
 }
 
 export interface TextOverlay {

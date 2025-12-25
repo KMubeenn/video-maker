@@ -1,11 +1,14 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   generateFullPreview,
+  uploadVideoFile,
+  preparePreview,
   type RankingVideoInput,
   type TextSegment,
 } from "../api/video.api";
 import { RichTextInput } from "../components/RichTextInput";
 import { RealtimePreview } from "../components/RealtimePreview";
+import { VideoEditor } from "../components/VideoEditor";
 import "./RankingVideos.css";
 
 interface VideoInput extends Omit<RankingVideoInput, "title"> {
@@ -48,18 +51,6 @@ function VideoPreviewPanel({
 }: PreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Calculate aspect ratio for container
-  const aspectRatio = width / height;
-  const getPreviewStyle = () => {
-    if (aspectRatio > 1) {
-      return { width: "100%", paddingTop: `${(1 / aspectRatio) * 100}%` };
-    } else if (aspectRatio < 1) {
-      return { width: "50%", paddingTop: `${(1 / aspectRatio) * 50}%` };
-    } else {
-      return { width: "70%", paddingTop: "70%" };
-    }
-  };
-
   const allVideosReady =
     mainTitle.length > 0 &&
     mainTitle[0].text.trim() !== "" &&
@@ -78,7 +69,7 @@ function VideoPreviewPanel({
       </label>
 
       <div className="preview-container">
-        <div className="preview-frame" style={getPreviewStyle()}>
+        <div className="preview-frame">
           <div className="preview-content">
             {previewState.isGenerating ? (
               <div className="preview-loading">
@@ -193,6 +184,10 @@ export default function RankingVideos() {
     new Set()
   );
 
+  // First to play selection (index of video to play first, null = default shuffle)
+  // Can only be videos with index >= 1 (not rank #1)
+  const [firstToPlay, setFirstToPlay] = useState<number | null>(null);
+
   // Single preview state
   const [previewState, setPreviewState] = useState<PreviewState>({
     isGenerating: false,
@@ -220,6 +215,10 @@ export default function RankingVideos() {
     setVideos(newVideos);
     setError("");
     setFailedVideoIndices(new Set());
+    // Reset firstToPlay if it's beyond the new count
+    if (firstToPlay !== null && firstToPlay >= count) {
+      setFirstToPlay(null);
+    }
     // Clear preview when changing video count
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
@@ -245,8 +244,121 @@ export default function RankingVideos() {
       return newSet;
     });
 
-    // Clear preview when video data changes
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
+  };
+
+  // Editor State
+  const [editingVideoIndex, setEditingVideoIndex] = useState<number | null>(
+    null
+  );
+
+  const [loadingEditorIndex, setLoadingEditorIndex] = useState<number | null>(
+    null
+  );
+  const [editorUrl, setEditorUrl] = useState<string | null>(null);
+
+  const handleEditClick = async (index: number) => {
+    const video = videos[index];
+    if (!video.url) return;
+
+    // Check if it's a local file (playable directly)
+    const isLocal =
+      video.url.includes("localhost") || video.url.startsWith("blob:");
+
+    if (isLocal) {
+      setEditorUrl(video.url);
+      setEditingVideoIndex(index);
+    } else {
+      // It's an external URL (YouTube/Instagram) - we need to download/cache it first
+      setLoadingEditorIndex(index);
+      try {
+        // Use preparePreview logic to get a playable local URL
+        const response = await preparePreview([
+          {
+            url: video.url,
+            id: video.id,
+          },
+        ]);
+
+        if (response.success && response.videos.length > 0) {
+          setEditorUrl(response.videos[0].url);
+          setEditingVideoIndex(index);
+        } else {
+          setError(
+            `Could not load video for editing: ${
+              response.warnings?.message || "Unknown error"
+            }`
+          );
+        }
+      } catch (err: unknown) {
+        console.error("Failed to prepare video for editing:", err);
+        setError("Failed to load video for editing. Please try again.");
+      } finally {
+        setLoadingEditorIndex(null);
+      }
+    }
+  };
+
+  const handleSaveEdit = (
+    start: number,
+    end: number,
+    cropX?: number,
+    cropY?: number,
+    cropWidth?: number,
+    cropHeight?: number
+  ) => {
+    if (editingVideoIndex === null) return;
+
+    const newVideos = [...videos];
+    newVideos[editingVideoIndex] = {
+      ...newVideos[editingVideoIndex],
+      trimStart: start,
+      trimEnd: end,
+      // Include crop values if provided
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+    };
+    setVideos(newVideos);
+    // Clear preview because trimming/cropping changed
+    setPreviewState({ isGenerating: false, videoUrl: null, error: null });
+  };
+
+  // Upload Logic
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadClick = (index: number) => {
+    setUploadingIndex(index);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const index = uploadingIndex;
+    if (index === null || !e.target.files || e.target.files.length === 0) {
+      setUploadingIndex(null);
+      return;
+    }
+
+    const file = e.target.files[0];
+    try {
+      // Optimistic logic: In a real app we might want to show a progress bar
+      const result = await uploadVideoFile(file);
+      if (result.success) {
+        handleVideoChange(index, "url", result.url);
+      } else {
+        setError("Upload failed on server");
+      }
+    } catch (err) {
+      console.error("Upload failed", err);
+      setError("Failed to upload video");
+    } finally {
+      setUploadingIndex(null);
+    }
   };
 
   // Generate full preview
@@ -286,9 +398,20 @@ export default function RankingVideos() {
     try {
       const response = await generateFullPreview(
         mainTitle,
-        videos.map((v) => ({ url: v.url, title: v.title })),
+        videos.map((v) => ({
+          url: v.url,
+          title: v.title,
+          trimStart: v.trimStart,
+          trimEnd: v.trimEnd,
+          // Include crop values for export
+          cropX: v.cropX,
+          cropY: v.cropY,
+          cropWidth: v.cropWidth,
+          cropHeight: v.cropHeight,
+        })),
         width,
-        height
+        height,
+        firstToPlay
       );
       // Extract failed video indices from warnings
       const failedIndices = new Set<number>();
@@ -378,19 +501,51 @@ export default function RankingVideos() {
           {/* Video Inputs */}
           <div className="videos-section">
             <label className="section-label">Ranking Videos</label>
+            <div className="first-to-play-hint">
+              💡 Select which video plays first (Rank #1 always plays last)
+            </div>
             {videos.map((video, index) => {
               const hasFailed = failedVideoIndices.has(index);
               const failureInfo = previewState.warnings?.failedVideos.find(
                 (f) => f.index === index
               );
+              const isRankOne = index === 0;
+              const isSelectedFirst = firstToPlay === index;
 
               return (
                 <div
                   key={video.id}
                   className={`video-input-group ${
                     hasFailed ? "has-error" : ""
-                  }`}
+                  } ${isSelectedFirst ? "first-to-play" : ""}`}
                 >
+                  {/* First to Play Radio Button - only for non-rank-1 videos */}
+                  <div className="first-play-selector">
+                    {!isRankOne ? (
+                      <label
+                        className={`first-play-radio ${
+                          isSelectedFirst ? "selected" : ""
+                        }`}
+                        title="Play this video first"
+                      >
+                        <input
+                          type="radio"
+                          name="firstToPlay"
+                          checked={isSelectedFirst}
+                          onChange={() => setFirstToPlay(index)}
+                        />
+                        <span className="radio-custom"></span>
+                        <span className="radio-label">1st</span>
+                      </label>
+                    ) : (
+                      <div
+                        className="rank-one-indicator"
+                        title="Rank #1 always plays last"
+                      >
+                        🏆
+                      </div>
+                    )}
+                  </div>
                   <div className={`rank-badge ${hasFailed ? "error" : ""}`}>
                     #{index + 1}
                   </div>
@@ -413,6 +568,30 @@ export default function RankingVideos() {
                         }
                         disabled={false}
                       />
+                      <button
+                        className="upload-icon-btn"
+                        onClick={() => handleUploadClick(index)}
+                        disabled={uploadingIndex !== null}
+                        title="Upload local video"
+                      >
+                        {uploadingIndex === index ? (
+                          <span className="mini-spinner"></span>
+                        ) : (
+                          "📂"
+                        )}
+                      </button>
+                      <button
+                        className="upload-icon-btn"
+                        onClick={() => handleEditClick(index)}
+                        disabled={!video.url || loadingEditorIndex === index}
+                        title="Trim/Edit Video"
+                      >
+                        {loadingEditorIndex === index ? (
+                          <span className="mini-spinner"></span>
+                        ) : (
+                          "✂️"
+                        )}
+                      </button>
                     </div>
                     {hasFailed && failureInfo && (
                       <div className="inline-error-message">
@@ -435,6 +614,15 @@ export default function RankingVideos() {
               );
             })}
           </div>
+
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            accept="video/*"
+            onChange={handleFileChange}
+          />
 
           {/* Video Dimensions */}
           <div className="dimensions-section">
@@ -508,30 +696,10 @@ export default function RankingVideos() {
               ) : (
                 <>
                   <span className="create-icon">🔄</span>
-                  Regenerate Preview
+                  Regenerate Export
                 </>
               )}
             </button>
-          </div>
-
-          {/* Instructions */}
-          <div className="instructions">
-            <h3 className="instructions-title">💡 How it works:</h3>
-            <ol className="instructions-list">
-              <li>
-                Enter a main title that will appear at the top of the video
-              </li>
-              <li>Choose how many videos to rank (3-6)</li>
-              <li>Paste URLs and give each video a descriptive title</li>
-              <li>Select your preferred video dimensions</li>
-              <li>Click "Regenerate Preview" to see the final video!</li>
-              <li>Download directly from the preview when ready</li>
-            </ol>
-            <div className="instructions-note">
-              ℹ️ Each video will display: <strong>Main Title</strong> (top) and{" "}
-              <strong>#Rank: Video Title</strong> (bottom) throughout its
-              duration
-            </div>
           </div>
         </div>
 
@@ -580,6 +748,7 @@ export default function RankingVideos() {
               videos={videos}
               width={width}
               height={height}
+              firstToPlay={firstToPlay}
             />
           ) : (
             <VideoPreviewPanel
@@ -593,6 +762,24 @@ export default function RankingVideos() {
           )}
         </div>
       </div>
+
+      {editingVideoIndex !== null && (
+        <VideoEditor
+          url={editorUrl || videos[editingVideoIndex].url}
+          isOpen={true}
+          onClose={() => {
+            setEditingVideoIndex(null);
+            setEditorUrl(null);
+          }}
+          onSave={handleSaveEdit}
+          initialTrimStart={videos[editingVideoIndex].trimStart}
+          initialTrimEnd={videos[editingVideoIndex].trimEnd}
+          initialCropX={videos[editingVideoIndex].cropX}
+          initialCropY={videos[editingVideoIndex].cropY}
+          initialCropWidth={videos[editingVideoIndex].cropWidth}
+          initialCropHeight={videos[editingVideoIndex].cropHeight}
+        />
+      )}
     </div>
   );
 }
