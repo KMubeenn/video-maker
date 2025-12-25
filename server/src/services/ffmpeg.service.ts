@@ -464,7 +464,16 @@ export async function createRankingVideo(
               .audioFrequency(44100) // Standardize sample rate to prevent robot voice on concat
               .audioChannels(2) // Standardize to stereo
               .videoCodec("libx264")
-              .outputOptions(["-preset", "fast", "-crf", "23"]) // Professional quality
+              .outputOptions([
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-r",
+                "30",
+                "-pix_fmt",
+                "yuv420p",
+              ]) // Professional quality, standard framerate and pixel format
               .output(outputPath)
               .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
               .on("end", () => {
@@ -500,6 +509,10 @@ export async function createRankingVideo(
                 "fast",
                 "-crf",
                 "23",
+                "-r",
+                "30",
+                "-pix_fmt",
+                "yuv420p",
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -552,6 +565,8 @@ export async function createRankingVideo(
           "aac",
           "-b:a",
           "320k",
+          "-pix_fmt",
+          "yuv420p",
         ])
         .output(finalOutputPath)
         .on("start", (cmd) => console.log("Concatenating videos:", cmd))

@@ -1112,6 +1112,118 @@
   }
 }
 
+/* First to Play Selection Styles */
+.first-to-play-hint {
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  border-radius: 6px;
+}
+
+.first-play-selector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 50px;
+}
+
+.first-play-radio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.first-play-radio:hover {
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.first-play-radio.selected {
+  border-color: #4caf50;
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.first-play-radio input[type="radio"] {
+  display: none;
+}
+
+.first-play-radio .radio-custom {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #555;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.first-play-radio:hover .radio-custom {
+  border-color: #4caf50;
+}
+
+.first-play-radio.selected .radio-custom {
+  border-color: #4caf50;
+  background: #4caf50;
+}
+
+.first-play-radio.selected .radio-custom::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+}
+
+.first-play-radio .radio-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.first-play-radio.selected .radio-label {
+  color: #4caf50;
+}
+
+.rank-one-indicator {
+  font-size: 1.5rem;
+  opacity: 0.6;
+}
+
+.video-input-group.first-to-play {
+  border-color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.video-input-group.first-to-play::before {
+  content: "PLAYS FIRST";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #4caf50;
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 10px;
+  letter-spacing: 0.5px;
+}
+
+.video-input-group {
+  position: relative;
+}
+
 @media (max-width: 768px) {
   .ranking-content {
     padding: 1.5rem 1rem;

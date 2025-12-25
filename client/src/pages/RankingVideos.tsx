@@ -193,6 +193,10 @@ export default function RankingVideos() {
     new Set()
   );
 
+  // First to play selection (index of video to play first, null = default shuffle)
+  // Can only be videos with index >= 1 (not rank #1)
+  const [firstToPlay, setFirstToPlay] = useState<number | null>(null);
+
   // Single preview state
   const [previewState, setPreviewState] = useState<PreviewState>({
     isGenerating: false,
@@ -220,6 +224,10 @@ export default function RankingVideos() {
     setVideos(newVideos);
     setError("");
     setFailedVideoIndices(new Set());
+    // Reset firstToPlay if it's beyond the new count
+    if (firstToPlay !== null && firstToPlay >= count) {
+      setFirstToPlay(null);
+    }
     // Clear preview when changing video count
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
@@ -288,7 +296,8 @@ export default function RankingVideos() {
         mainTitle,
         videos.map((v) => ({ url: v.url, title: v.title })),
         width,
-        height
+        height,
+        firstToPlay
       );
       // Extract failed video indices from warnings
       const failedIndices = new Set<number>();
@@ -378,19 +387,51 @@ export default function RankingVideos() {
           {/* Video Inputs */}
           <div className="videos-section">
             <label className="section-label">Ranking Videos</label>
+            <div className="first-to-play-hint">
+              💡 Select which video plays first (Rank #1 always plays last)
+            </div>
             {videos.map((video, index) => {
               const hasFailed = failedVideoIndices.has(index);
               const failureInfo = previewState.warnings?.failedVideos.find(
                 (f) => f.index === index
               );
+              const isRankOne = index === 0;
+              const isSelectedFirst = firstToPlay === index;
 
               return (
                 <div
                   key={video.id}
                   className={`video-input-group ${
                     hasFailed ? "has-error" : ""
-                  }`}
+                  } ${isSelectedFirst ? "first-to-play" : ""}`}
                 >
+                  {/* First to Play Radio Button - only for non-rank-1 videos */}
+                  <div className="first-play-selector">
+                    {!isRankOne ? (
+                      <label
+                        className={`first-play-radio ${
+                          isSelectedFirst ? "selected" : ""
+                        }`}
+                        title="Play this video first"
+                      >
+                        <input
+                          type="radio"
+                          name="firstToPlay"
+                          checked={isSelectedFirst}
+                          onChange={() => setFirstToPlay(index)}
+                        />
+                        <span className="radio-custom"></span>
+                        <span className="radio-label">1st</span>
+                      </label>
+                    ) : (
+                      <div
+                        className="rank-one-indicator"
+                        title="Rank #1 always plays last"
+                      >
+                        🏆
+                      </div>
+                    )}
+                  </div>
                   <div className={`rank-badge ${hasFailed ? "error" : ""}`}>
                     #{index + 1}
                   </div>
@@ -580,6 +621,7 @@ export default function RankingVideos() {
               videos={videos}
               width={width}
               height={height}
+              firstToPlay={firstToPlay}
             />
           ) : (
             <VideoPreviewPanel

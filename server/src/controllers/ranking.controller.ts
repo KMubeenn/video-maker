@@ -280,11 +280,12 @@ export async function createRanking(req: Request, res: Response) {
  */
 export async function generateFullPreview(req: Request, res: Response) {
   try {
-    const { mainTitle, videos, width, height } = req.body as {
+    const { mainTitle, videos, width, height, firstToPlay } = req.body as {
       mainTitle: TextSegment[];
       videos: VideoRankInput[];
       width?: number;
       height?: number;
+      firstToPlay?: number; // Index of video to play first (must be >= 1, not rank #1)
     };
 
     // Validation (same as createRanking)
@@ -384,14 +385,28 @@ export async function generateFullPreview(req: Request, res: Response) {
     // Deterministic shuffle to match frontend "random" look
     // Using simple hash sort based on rank (equivalent to id in frontend)
     // Formula: ((rank * 13 + 7) % 5)
-    otherVideos.sort((a, b) => {
+    let sortedOthers = [...otherVideos].sort((a, b) => {
       const valA = (a.rank * 13 + 7) % 5;
       const valB = (b.rank * 13 + 7) % 5;
       return valA - valB;
     });
 
-    // Reconstruct array: shuffled videos + rank 1 at the end
-    const shuffledInputs = [...otherVideos, rank1Video];
+    // If firstToPlay is specified (and valid), move that video to the front
+    if (firstToPlay !== undefined && firstToPlay !== null && firstToPlay >= 1) {
+      // firstToPlay is the 0-based index in the original videos array
+      // rank = index + 1
+      const targetRank = firstToPlay + 1;
+      const selectedVideo = sortedOthers.find((v) => v.rank === targetRank);
+      if (selectedVideo) {
+        // Remove from list and prepend
+        sortedOthers = sortedOthers.filter((v) => v.rank !== targetRank);
+        sortedOthers.unshift(selectedVideo);
+        console.log(`User selected rank #${targetRank} to play first`);
+      }
+    }
+
+    // Reconstruct array: sorted videos + rank 1 at the end
+    const shuffledInputs = [...sortedOthers, rank1Video];
 
     console.log(
       `Playback order: ${shuffledInputs.map((v) => `#${v.rank}`).join(" → ")}`

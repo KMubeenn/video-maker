@@ -12,6 +12,7 @@ interface RealtimePreviewProps {
   videos: { id: number; url: string; title: TextSegment[] }[];
   width: number;
   height: number;
+  firstToPlay?: number | null; // Index of video to play first (not rank #1)
 }
 
 interface LoadedAsset {
@@ -40,6 +41,7 @@ export function RealtimePreview({
   videos,
   width,
   height,
+  firstToPlay,
 }: RealtimePreviewProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -56,7 +58,7 @@ export function RealtimePreview({
 
   // Refs for rendering loop
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number>(null);
   const startTimeRef = useRef<number>(0);
   const videoElementsRef = useRef<Map<number, HTMLVideoElement>>(new Map());
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -207,12 +209,31 @@ export function RealtimePreview({
     // we use a pseudo-random sort based on the video ID or URL length.
     // If true randomness is desired on every load, we'd need state.
     // Let's use a simple deterministic shuffle for now that looks random.
-    const shuffledOthers = [...otherVideos].sort((a, b) => {
+    let shuffledOthers = [...otherVideos].sort((a, b) => {
       // Simple deterministic hash based shuffle
       return ((a.id * 13 + 7) % 5) - ((b.id * 13 + 7) % 5);
     });
 
-    const playbackOrder = [...shuffledOthers, rank1Video].filter(Boolean);
+    // If firstToPlay is specified (and valid), move that video to the front
+    if (firstToPlay !== null && firstToPlay !== undefined && firstToPlay >= 1) {
+      const selectedVideo = videos[firstToPlay];
+      if (selectedVideo) {
+        // Remove from shuffled list and prepend
+        shuffledOthers = shuffledOthers.filter(
+          (v) => v.id !== selectedVideo.id
+        );
+        shuffledOthers.unshift(selectedVideo);
+      }
+    }
+
+    const rawPlaybackOrder = [...shuffledOthers, rank1Video].filter(Boolean);
+
+    // Filter out videos that are not playable (no URL or not loaded)
+    // This prevents "ghost" reveals of empty/invalid videos (like the bug where video #3 plays first but shows #2 title)
+    // The previous logic skipped clip creation but kept the video in playbackOrder for overlay calculations.
+    const playbackOrder = rawPlaybackOrder.filter(
+      (vid) => vid.url && loadedAssetsRef.current.has(vid.url)
+    );
 
     for (const vid of playbackOrder) {
       if (!vid.url) continue;
@@ -331,7 +352,7 @@ export function RealtimePreview({
       width,
       height,
     });
-  }, [mainTitle, videos, width, height]);
+  }, [mainTitle, videos, width, height, firstToPlay]);
 
   // Effect 1: Handle Asset Loading (Debounced)
   // This watches 'debouncedVideos' and triggers network calls
