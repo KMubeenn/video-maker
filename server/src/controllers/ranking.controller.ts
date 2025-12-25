@@ -226,15 +226,9 @@ export async function createRanking(req: Request, res: Response) {
         cropY: originalVideo?.cropY,
         cropWidth: originalVideo?.cropWidth,
         cropHeight: originalVideo?.cropHeight,
-        // Convert meme sound URLs to absolute file paths
+        // Pass meme sound URLs directly - FFmpeg service will download if needed
         memeSounds: originalVideo?.memeSounds?.map((s) => ({
-          // Convert URL like http://localhost:4000/assets/sounds/file.mp3 to absolute path
-          file: path.resolve(
-            process.cwd(),
-            "assets",
-            "sounds",
-            s.file.split("/").pop() || ""
-          ),
+          file: s.file, // Keep the URL as-is (Supabase or other)
           startTime: s.startTime,
           volume: s.volume,
         })),
@@ -414,15 +408,9 @@ export async function generateFullPreview(req: Request, res: Response) {
         cropY: originalVideo?.cropY,
         cropWidth: originalVideo?.cropWidth,
         cropHeight: originalVideo?.cropHeight,
-        // Convert meme sound URLs to absolute file paths
+        // Pass meme sound URLs directly - FFmpeg service will download if needed
         memeSounds: originalVideo?.memeSounds?.map((s) => ({
-          // Convert URL like http://localhost:4000/assets/sounds/file.mp3 to absolute path
-          file: path.resolve(
-            process.cwd(),
-            "assets",
-            "sounds",
-            s.file.split("/").pop() || ""
-          ),
+          file: s.file, // Keep the URL as-is (Supabase or other)
           startTime: s.startTime,
           volume: s.volume,
         })),
