@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import {
   generateFullPreview,
+  uploadVideoFile,
   type RankingVideoInput,
   type TextSegment,
 } from "../api/video.api";
@@ -253,8 +254,43 @@ export default function RankingVideos() {
       return newSet;
     });
 
-    // Clear preview when video data changes
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
+  };
+
+  // Upload Logic
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadClick = (index: number) => {
+    setUploadingIndex(index);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const index = uploadingIndex;
+    if (index === null || !e.target.files || e.target.files.length === 0) {
+      setUploadingIndex(null);
+      return;
+    }
+
+    const file = e.target.files[0];
+    try {
+      // Optimistic logic: In a real app we might want to show a progress bar
+      const result = await uploadVideoFile(file);
+      if (result.success) {
+        handleVideoChange(index, "url", result.url);
+      } else {
+        setError("Upload failed on server");
+      }
+    } catch (err) {
+      console.error("Upload failed", err);
+      setError("Failed to upload video");
+    } finally {
+      setUploadingIndex(null);
+    }
   };
 
   // Generate full preview
@@ -454,6 +490,18 @@ export default function RankingVideos() {
                         }
                         disabled={false}
                       />
+                      <button
+                        className="upload-icon-btn"
+                        onClick={() => handleUploadClick(index)}
+                        disabled={uploadingIndex !== null}
+                        title="Upload local video"
+                      >
+                        {uploadingIndex === index ? (
+                          <span className="mini-spinner"></span>
+                        ) : (
+                          "📂"
+                        )}
+                      </button>
                     </div>
                     {hasFailed && failureInfo && (
                       <div className="inline-error-message">
@@ -476,6 +524,15 @@ export default function RankingVideos() {
               );
             })}
           </div>
+
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            accept="video/*"
+            onChange={handleFileChange}
+          />
 
           {/* Video Dimensions */}
           <div className="dimensions-section">

@@ -3,6 +3,20 @@ import axios from "axios";
 const API_URL = "http://localhost:4000/api/video";
 const MERGE_API_URL = "http://localhost:4000/api/merge";
 const RANKING_API_URL = "http://localhost:4000/api/ranking";
+const UPLOAD_API_URL = "http://localhost:4000/api/upload";
+
+export const uploadVideoFile = async (
+  file: File
+): Promise<{ success: boolean; url: string; filename: string }> => {
+  const formData = new FormData();
+  formData.append("video", file);
+
+  const res = await axios.post(`${UPLOAD_API_URL}/video`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+
+  return res.data;
+};
 
 export const createVideo = async (file: File, title: string) => {
   const formData = new FormData();
