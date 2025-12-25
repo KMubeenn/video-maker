@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "../lib/supabase.js";
 import type { User, Session } from "@supabase/supabase-js";
+import axios from "axios";
 
 interface AuthContextType {
   user: User | null;
@@ -20,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
     let sessionResolved = false;
 
     // Set a timeout to prevent infinite loading
@@ -58,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         if (session?.user) {
           // Don't wait for admin check - do it in background
-          checkAdminStatus(session.user.id).catch((err) => {
+          checkAdminStatus().catch((err) => {
             console.error("Error checking admin status:", err);
           });
         }
@@ -87,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         // Don't wait for admin check - do it in background (same as getSession path)
-        checkAdminStatus(session.user.id).catch((err) => {
+        checkAdminStatus().catch((err) => {
           console.error("Error checking admin status:", err);
         });
       } else {
@@ -103,24 +104,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const checkAdminStatus = async (userId: string) => {
+  const checkAdminStatus = async () => {
     try {
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("is_admin")
-        .eq("id", userId)
-        .single();
-
-      if (error) {
-        console.error("Error fetching admin status:", error);
-        // If table doesn't exist or RLS blocks it, default to false
+      // Use API endpoint instead of direct Supabase query to avoid RLS recursion
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
         setIsAdmin(false);
         return;
       }
 
-      setIsAdmin(data?.is_admin || false);
-    } catch (error) {
-      console.error("Error checking admin status:", error);
+      const response = await axios.get(`${API_URL}/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      setIsAdmin(response.data?.isAdmin || false);
+    } catch (error: any) {
+      // Silently fail - admin check is optional and defaults to false
+      // Only log if it's not a 401 (unauthorized) which is expected when not logged in
+      if (error.response?.status !== 401) {
+        console.warn("Could not fetch admin status (this is non-critical):", error.message);
+      }
       setIsAdmin(false);
     }
   };

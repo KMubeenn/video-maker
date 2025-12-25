@@ -75,5 +75,12 @@ export const teamApi = {
     const response = await api.delete(`/teams/${id}`);
     return response.data;
   },
+
+  searchUserByEmail: async (email: string) => {
+    const response = await api.get(`/teams/search-user`, {
+      params: { email },
+    });
+    return response.data;
+  },
 };
 

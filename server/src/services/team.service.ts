@@ -77,27 +77,53 @@ export async function getTeamById(teamId: string, userId: string) {
 
 export async function getTeamMembers(teamId: string, userId: string) {
   // Check if user is a member
-  const { data: member } = await supabaseService
+  const { data: member, error: memberError } = await supabaseService
     .from("team_members")
     .select("role")
     .eq("team_id", teamId)
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
+
+  if (memberError) {
+    throw new Error(`Failed to check team membership: ${memberError.message}`);
+  }
 
   if (!member) {
     throw new Error("Access denied: Not a team member");
   }
 
-  const { data, error } = await supabaseService
+  // Fetch team members - explicitly select columns to avoid relationship auto-detection
+  const { data: members, error: membersError } = await supabaseService
     .from("team_members")
-    .select("*, user_profiles(email, full_name)")
+    .select("id, team_id, user_id, role, joined_at")
     .eq("team_id", teamId);
 
-  if (error) {
-    throw new Error(`Failed to fetch team members: ${error.message}`);
+  if (membersError) {
+    throw new Error(`Failed to fetch team members: ${membersError.message}`);
   }
 
-  return data || [];
+  if (!members || members.length === 0) {
+    return [];
+  }
+
+  // Fetch user profiles for all members
+  const userIds = members.map((m: any) => m.user_id);
+  const { data: profiles, error: profilesError } = await supabaseService
+    .from("user_profiles")
+    .select("id, email, full_name")
+    .in("id", userIds);
+
+  if (profilesError) {
+    throw new Error(`Failed to fetch user profiles: ${profilesError.message}`);
+  }
+
+  // Combine members with their profiles
+  const profilesMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+  
+  return members.map((member: any) => ({
+    ...member,
+    user_profiles: profilesMap.get(member.user_id) || null,
+  }));
 }
 
 export async function addTeamMember(

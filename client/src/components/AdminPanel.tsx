@@ -1,6 +1,21 @@
 import { useState, useEffect } from "react";
 import { adminApi, type UserProfile } from "../api/admin.api";
 import { useAuth } from "../hooks/useAuth";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Shield, Trash2, AlertCircle } from "lucide-react";
 
 export function AdminPanel() {
   const { isAdmin } = useAuth();
@@ -48,78 +63,102 @@ export function AdminPanel() {
 
   if (!isAdmin) {
     return (
-      <div style={{ padding: "20px" }}>
-        <div style={{ color: "red" }}>Access denied. Admin privileges required.</div>
-      </div>
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+          <p className="text-lg font-semibold">Access Denied</p>
+          <p className="text-sm text-muted-foreground">Admin privileges required.</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>User Management</h1>
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Shield className="h-6 w-6" />
+        <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
+      </div>
 
       {error && (
-        <div style={{ color: "red", marginBottom: "15px", padding: "10px", backgroundColor: "#f8d7da", borderRadius: "4px" }}>
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      {loading ? (
-        <div>Loading users...</div>
-      ) : users.length === 0 ? (
-        <div>No users found</div>
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ backgroundColor: "#f8f9fa" }}>
-                <th style={{ padding: "10px", textAlign: "left", border: "1px solid #ddd" }}>Email</th>
-                <th style={{ padding: "10px", textAlign: "left", border: "1px solid #ddd" }}>Full Name</th>
-                <th style={{ padding: "10px", textAlign: "left", border: "1px solid #ddd" }}>Admin</th>
-                <th style={{ padding: "10px", textAlign: "left", border: "1px solid #ddd" }}>Created</th>
-                <th style={{ padding: "10px", textAlign: "left", border: "1px solid #ddd" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td style={{ padding: "10px", border: "1px solid #ddd" }}>{user.email}</td>
-                  <td style={{ padding: "10px", border: "1px solid #ddd" }}>
-                    {user.full_name || "-"}
-                  </td>
-                  <td style={{ padding: "10px", border: "1px solid #ddd" }}>
-                    <input
-                      type="checkbox"
-                      checked={user.is_admin}
-                      onChange={() => handleToggleAdmin(user.id, user.is_admin)}
-                    />
-                  </td>
-                  <td style={{ padding: "10px", border: "1px solid #ddd" }}>
-                    {user.created_at
-                      ? new Date(user.created_at).toLocaleDateString()
-                      : "-"}
-                  </td>
-                  <td style={{ padding: "10px", border: "1px solid #ddd" }}>
-                    <button
-                      onClick={() => handleDeleteUser(user.id)}
-                      style={{
-                        padding: "5px 10px",
-                        backgroundColor: "#dc3545",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                      }}
+      <Card>
+        <CardHeader>
+          <CardTitle>All Users</CardTitle>
+          <CardDescription>Manage user accounts and admin privileges</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : users.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No users found</p>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Full Name</TableHead>
+                    <TableHead>Admin</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map((user) => (
+                    <TableRow 
+                      key={user.id}
+                      className="transition-all duration-200 hover:bg-accent/50 hover:shadow-sm cursor-pointer"
                     >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      <TableCell className="font-medium transition-colors duration-200 hover:text-primary">{user.email}</TableCell>
+                      <TableCell className="transition-colors duration-200">{user.full_name || "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={user.is_admin}
+                            onCheckedChange={() => handleToggleAdmin(user.id, user.is_admin)}
+                            className="transition-all duration-200"
+                          />
+                          {user.is_admin && (
+                            <Badge variant="default" className="gap-1 transition-all duration-200 hover:scale-105 hover:shadow-sm">
+                              <Shield className="h-3 w-3" />
+                              Admin
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="transition-colors duration-200">
+                        {user.created_at
+                          ? new Date(user.created_at).toLocaleDateString()
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteUser(user.id)}
+                          className="transition-all duration-200 hover:bg-destructive/90 hover:shadow-md hover:scale-105"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
