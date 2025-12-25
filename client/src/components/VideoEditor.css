@@ -57,6 +57,37 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Mode Tabs */
+.editor-mode-tabs {
+  display: flex;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: transparent;
+  color: #888;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.mode-tab:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mode-tab.active {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.05);
+  border-bottom-color: #4caf50;
+}
+
 .header-title {
   display: flex;
   align-items: center;

@@ -68,6 +68,9 @@ export function VideoEditor({
   const [cropHeight, setCropHeight] = useState(initialCropHeight ?? 0);
   const [activePreset, setActivePreset] = useState<CropPreset>("freeform");
 
+  // Edit mode: "trim" or "crop" - allows user to focus on one at a time
+  const [editMode, setEditMode] = useState<"trim" | "crop">("trim");
+
   // Crop drag state
   const [isCropDragging, setIsCropDragging] = useState(false);
   const [cropDragType, setCropDragType] = useState<
@@ -407,11 +410,29 @@ export function VideoEditor({
       <div className="video-editor-modal" onClick={(e) => e.stopPropagation()}>
         <div className="editor-header">
           <div className="header-title">
-            <span className="header-icon">✂️</span>
-            <h3>Trim & Crop Video</h3>
+            <span className="header-icon">
+              {editMode === "trim" ? "✂️" : "🔲"}
+            </span>
+            <h3>Video Editor</h3>
           </div>
           <button className="close-btn" onClick={onClose}>
             ×
+          </button>
+        </div>
+
+        {/* Mode Tabs */}
+        <div className="editor-mode-tabs">
+          <button
+            className={`mode-tab ${editMode === "trim" ? "active" : ""}`}
+            onClick={() => setEditMode("trim")}
+          >
+            ✂️ Trim
+          </button>
+          <button
+            className={`mode-tab ${editMode === "crop" ? "active" : ""}`}
+            onClick={() => setEditMode("crop")}
+          >
+            🔲 Crop
           </button>
         </div>
 
@@ -425,8 +446,8 @@ export function VideoEditor({
             onPause={() => setIsPlaying(false)}
             onClick={togglePlay}
           />
-          {/* Crop Overlay */}
-          {videoNativeWidth > 0 && (
+          {/* Crop Overlay - only show in crop mode */}
+          {editMode === "crop" && videoNativeWidth > 0 && (
             <div className="crop-overlay-container">
               {/* Darkened areas outside crop region */}
               <div
@@ -516,49 +537,51 @@ export function VideoEditor({
           </div>
         </div>
 
-        {/* Crop Presets */}
-        <div className="crop-presets">
-          <span className="crop-presets-label">Crop:</span>
-          <button
-            className={`crop-preset-btn ${
-              activePreset === "9:16" ? "active" : ""
-            }`}
-            onClick={() => handlePresetSelect("9:16")}
-            title="Vertical (TikTok, Reels)"
-          >
-            9:16
-          </button>
-          <button
-            className={`crop-preset-btn ${
-              activePreset === "1:1" ? "active" : ""
-            }`}
-            onClick={() => handlePresetSelect("1:1")}
-            title="Square (Instagram)"
-          >
-            1:1
-          </button>
-          <button
-            className={`crop-preset-btn ${
-              activePreset === "16:9" ? "active" : ""
-            }`}
-            onClick={() => handlePresetSelect("16:9")}
-            title="Horizontal (YouTube)"
-          >
-            16:9
-          </button>
-          <button
-            className={`crop-preset-btn ${
-              activePreset === "freeform" ? "active" : ""
-            }`}
-            onClick={() => handlePresetSelect("freeform")}
-            title="Full Frame"
-          >
-            Full
-          </button>
-          <span className="crop-info">
-            {cropWidth}×{cropHeight}
-          </span>
-        </div>
+        {/* Crop Presets - only show in crop mode */}
+        {editMode === "crop" && (
+          <div className="crop-presets">
+            <span className="crop-presets-label">Crop:</span>
+            <button
+              className={`crop-preset-btn ${
+                activePreset === "9:16" ? "active" : ""
+              }`}
+              onClick={() => handlePresetSelect("9:16")}
+              title="Vertical (TikTok, Reels)"
+            >
+              9:16
+            </button>
+            <button
+              className={`crop-preset-btn ${
+                activePreset === "1:1" ? "active" : ""
+              }`}
+              onClick={() => handlePresetSelect("1:1")}
+              title="Square (Instagram)"
+            >
+              1:1
+            </button>
+            <button
+              className={`crop-preset-btn ${
+                activePreset === "16:9" ? "active" : ""
+              }`}
+              onClick={() => handlePresetSelect("16:9")}
+              title="Horizontal (YouTube)"
+            >
+              16:9
+            </button>
+            <button
+              className={`crop-preset-btn ${
+                activePreset === "freeform" ? "active" : ""
+              }`}
+              onClick={() => handlePresetSelect("freeform")}
+              title="Full Frame"
+            >
+              Full
+            </button>
+            <span className="crop-info">
+              {cropWidth}×{cropHeight}
+            </span>
+          </div>
+        )}
 
         <div className="editor-controls">
           {/* Time Info Bar */}
@@ -598,79 +621,81 @@ export function VideoEditor({
             </button>
           </div>
 
-          {/* Timeline */}
-          <div className="timeline-container">
-            <div className="timeline-labels">
-              <span>{formatTime(trimStart)}</span>
-              <span className="trim-range-label">Trim Range</span>
-              <span>{formatTime(trimEnd)}</span>
-            </div>
+          {/* Timeline - only show in trim mode */}
+          {editMode === "trim" && (
+            <div className="timeline-container">
+              <div className="timeline-labels">
+                <span>{formatTime(trimStart)}</span>
+                <span className="trim-range-label">Trim Range</span>
+                <span>{formatTime(trimEnd)}</span>
+              </div>
 
-            <div
-              className="timeline"
-              ref={timelineRef}
-              onClick={handleTimelineClick}
-            >
-              {/* Full track background */}
-              <div className="timeline-track" />
-
-              {/* Dimmed area before trim start */}
               <div
-                className="timeline-dimmed"
-                style={{ left: 0, width: `${startPercent}%` }}
-              />
-
-              {/* Selected trim region */}
-              <div
-                className="timeline-selected"
-                style={{
-                  left: `${startPercent}%`,
-                  width: `${endPercent - startPercent}%`,
-                }}
-              />
-
-              {/* Dimmed area after trim end */}
-              <div
-                className="timeline-dimmed"
-                style={{ left: `${endPercent}%`, right: 0 }}
-              />
-
-              {/* Trim handles */}
-              <div
-                className="trim-handle start-handle"
-                style={{ left: `${startPercent}%` }}
-                onMouseDown={(e) => handleTimelineMouseDown(e, "start")}
+                className="timeline"
+                ref={timelineRef}
+                onClick={handleTimelineClick}
               >
-                <div className="handle-grip">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+                {/* Full track background */}
+                <div className="timeline-track" />
+
+                {/* Dimmed area before trim start */}
+                <div
+                  className="timeline-dimmed"
+                  style={{ left: 0, width: `${startPercent}%` }}
+                />
+
+                {/* Selected trim region */}
+                <div
+                  className="timeline-selected"
+                  style={{
+                    left: `${startPercent}%`,
+                    width: `${endPercent - startPercent}%`,
+                  }}
+                />
+
+                {/* Dimmed area after trim end */}
+                <div
+                  className="timeline-dimmed"
+                  style={{ left: `${endPercent}%`, right: 0 }}
+                />
+
+                {/* Trim handles */}
+                <div
+                  className="trim-handle start-handle"
+                  style={{ left: `${startPercent}%` }}
+                  onMouseDown={(e) => handleTimelineMouseDown(e, "start")}
+                >
+                  <div className="handle-grip">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+
+                <div
+                  className="trim-handle end-handle"
+                  style={{ left: `${endPercent}%` }}
+                  onMouseDown={(e) => handleTimelineMouseDown(e, "end")}
+                >
+                  <div className="handle-grip">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+
+                {/* Playhead */}
+                <div
+                  className="playhead"
+                  style={{ left: `${playheadPercent}%` }}
+                  onMouseDown={(e) => handleTimelineMouseDown(e, "playhead")}
+                >
+                  <div className="playhead-head" />
+                  <div className="playhead-line" />
                 </div>
               </div>
-
-              <div
-                className="trim-handle end-handle"
-                style={{ left: `${endPercent}%` }}
-                onMouseDown={(e) => handleTimelineMouseDown(e, "end")}
-              >
-                <div className="handle-grip">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-              </div>
-
-              {/* Playhead */}
-              <div
-                className="playhead"
-                style={{ left: `${playheadPercent}%` }}
-                onMouseDown={(e) => handleTimelineMouseDown(e, "playhead")}
-              >
-                <div className="playhead-head" />
-                <div className="playhead-line" />
-              </div>
             </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="action-buttons">
