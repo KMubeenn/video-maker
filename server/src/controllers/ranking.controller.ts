@@ -108,6 +108,11 @@ export interface VideoRankInput {
   title: TextSegment[];
   trimStart?: number;
   trimEnd?: number;
+  // Crop values (in source video pixels)
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
 }
 
 export interface CreateRankingRequest {
@@ -201,14 +206,20 @@ export async function createRanking(req: Request, res: Response) {
       const originalIndex = urls.findIndex(
         (url) => url === downloaded.originalUrl
       );
+      const originalVideo = videos[originalIndex];
       return {
         filePath: downloaded.filePath,
-        title: videos[originalIndex]?.title || [
+        title: originalVideo?.title || [
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
         rank: originalIndex + 1,
-        trimStart: videos[originalIndex]?.trimStart,
-        trimEnd: videos[originalIndex]?.trimEnd,
+        trimStart: originalVideo?.trimStart,
+        trimEnd: originalVideo?.trimEnd,
+        // Include crop values for FFmpeg
+        cropX: originalVideo?.cropX,
+        cropY: originalVideo?.cropY,
+        cropWidth: originalVideo?.cropWidth,
+        cropHeight: originalVideo?.cropHeight,
       };
     });
 
@@ -371,14 +382,20 @@ export async function generateFullPreview(req: Request, res: Response) {
       const originalIndex = urls.findIndex(
         (url) => url === downloaded.originalUrl
       );
+      const originalVideo = videos[originalIndex];
       return {
         filePath: downloaded.filePath,
-        title: videos[originalIndex]?.title || [
+        title: originalVideo?.title || [
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
         rank: originalIndex + 1,
-        trimStart: videos[originalIndex]?.trimStart,
-        trimEnd: videos[originalIndex]?.trimEnd,
+        trimStart: originalVideo?.trimStart,
+        trimEnd: originalVideo?.trimEnd,
+        // Include crop values for FFmpeg
+        cropX: originalVideo?.cropX,
+        cropY: originalVideo?.cropY,
+        cropWidth: originalVideo?.cropWidth,
+        cropHeight: originalVideo?.cropHeight,
       };
     });
 

@@ -15,6 +15,11 @@ interface RealtimePreviewProps {
     title: TextSegment[];
     trimStart?: number;
     trimEnd?: number;
+    // Crop values (in source video pixels)
+    cropX?: number;
+    cropY?: number;
+    cropWidth?: number;
+    cropHeight?: number;
   }[];
   width: number;
   height: number;
@@ -324,6 +329,11 @@ export function RealtimePreview({
         sourceStart: trimStart,
         volume: 1,
         audioBuffer: asset.audioBuffer,
+        // Include crop values for rendering
+        cropX: vid.cropX,
+        cropY: vid.cropY,
+        cropWidth: vid.cropWidth,
+        cropHeight: vid.cropHeight,
       });
       currentOffset += clipDuration;
     }
@@ -593,13 +603,22 @@ export function RealtimePreview({
         const titleHeight = 200;
         const videoAreaHeight = height - titleHeight;
 
+        // Get source dimensions - use crop if specified, otherwise full video
         const vw = videoEl.videoWidth;
         const vh = videoEl.videoHeight;
 
-        if (vw > 0 && vh > 0) {
-          const scale = Math.max(width / vw, videoAreaHeight / vh);
-          const scaledW = vw * scale;
-          const scaledH = vh * scale;
+        // Crop parameters (source rect for drawImage)
+        const hasCrop = currentClip.cropWidth && currentClip.cropHeight;
+        const sx = hasCrop ? currentClip.cropX ?? 0 : 0;
+        const sy = hasCrop ? currentClip.cropY ?? 0 : 0;
+        const sw = hasCrop ? currentClip.cropWidth! : vw;
+        const sh = hasCrop ? currentClip.cropHeight! : vh;
+
+        if (sw > 0 && sh > 0) {
+          // Scale cropped region to cover target area
+          const scale = Math.max(width / sw, videoAreaHeight / sh);
+          const scaledW = sw * scale;
+          const scaledH = sh * scale;
           const dx = (width - scaledW) / 2;
           const dy = titleHeight + (videoAreaHeight - scaledH) / 2;
 
@@ -609,7 +628,9 @@ export function RealtimePreview({
           ctx.rect(0, titleHeight, width, videoAreaHeight);
           ctx.clip();
 
-          ctx.drawImage(videoEl, dx, dy, scaledW, scaledH);
+          // Draw cropped video using 9-arg drawImage
+          // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+          ctx.drawImage(videoEl, sx, sy, sw, sh, dx, dy, scaledW, scaledH);
           ctx.restore();
         }
       }

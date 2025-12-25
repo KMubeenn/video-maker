@@ -47,6 +47,11 @@ export interface RankingVideoInput {
   title: TextSegment[];
   trimStart?: number;
   trimEnd?: number;
+  // Crop values (in source video pixels)
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
 }
 
 export const createRankingVideo = async (

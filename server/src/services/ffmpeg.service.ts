@@ -316,6 +316,11 @@ export interface RankingVideoInput {
   rank: number;
   trimStart?: number | undefined;
   trimEnd?: number | undefined;
+  // Crop values (in source video pixels, applied after trim)
+  cropX?: number | undefined;
+  cropY?: number | undefined;
+  cropWidth?: number | undefined;
+  cropHeight?: number | undefined;
 }
 
 export interface RankingVideoOptions {
@@ -396,7 +401,24 @@ export async function createRankingVideo(
         filters.push(`trim=start=${trimStart},setpts=PTS-STARTPTS`);
       }
 
+      // 0.5 User Crop (applied after trim, before layout scaling)
+      // This crops the source video to user-specified region before scaling to canvas
+      const hasCrop =
+        video.cropWidth &&
+        video.cropHeight &&
+        video.cropWidth > 0 &&
+        video.cropHeight > 0;
+      if (hasCrop) {
+        const cx = video.cropX ?? 0;
+        const cy = video.cropY ?? 0;
+        console.log(
+          `Applying user crop filter: ${video.cropWidth}x${video.cropHeight} at (${cx},${cy})`
+        );
+        filters.push(`crop=${video.cropWidth}:${video.cropHeight}:${cx}:${cy}`);
+      }
+
       // 1. Scale video to fill full width (may crop top/bottom)
+      // After user crop, the source dimensions are cropWidth x cropHeight
       filters.push(
         `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
       );

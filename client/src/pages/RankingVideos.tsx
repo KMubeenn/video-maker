@@ -311,7 +311,14 @@ export default function RankingVideos() {
     }
   };
 
-  const handleSaveEdit = (start: number, end: number) => {
+  const handleSaveEdit = (
+    start: number,
+    end: number,
+    cropX?: number,
+    cropY?: number,
+    cropWidth?: number,
+    cropHeight?: number
+  ) => {
     if (editingVideoIndex === null) return;
 
     const newVideos = [...videos];
@@ -319,9 +326,14 @@ export default function RankingVideos() {
       ...newVideos[editingVideoIndex],
       trimStart: start,
       trimEnd: end,
+      // Include crop values if provided
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
     };
     setVideos(newVideos);
-    // Clear preview because trimming changed
+    // Clear preview because trimming/cropping changed
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
 
@@ -403,6 +415,11 @@ export default function RankingVideos() {
           title: v.title,
           trimStart: v.trimStart,
           trimEnd: v.trimEnd,
+          // Include crop values for export
+          cropX: v.cropX,
+          cropY: v.cropY,
+          cropWidth: v.cropWidth,
+          cropHeight: v.cropHeight,
         })),
         width,
         height,
@@ -789,6 +806,10 @@ export default function RankingVideos() {
           onSave={handleSaveEdit}
           initialTrimStart={videos[editingVideoIndex].trimStart}
           initialTrimEnd={videos[editingVideoIndex].trimEnd}
+          initialCropX={videos[editingVideoIndex].cropX}
+          initialCropY={videos[editingVideoIndex].cropY}
+          initialCropWidth={videos[editingVideoIndex].cropWidth}
+          initialCropHeight={videos[editingVideoIndex].cropHeight}
         />
       )}
     </div>

@@ -437,3 +437,184 @@
 .save-btn:active {
   transform: translateY(0);
 }
+
+/* Crop Overlay */
+.crop-overlay-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.crop-mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.crop-mask-top {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.crop-mask-bottom {
+  left: 0;
+  right: 0;
+}
+
+.crop-mask-left {
+  left: 0;
+}
+
+.crop-mask-right {
+  right: 0;
+}
+
+.crop-region {
+  position: absolute;
+  border: 2px solid #4caf50;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: move;
+  pointer-events: auto;
+}
+
+.crop-region::before {
+  content: "";
+  position: absolute;
+  top: 33.33%;
+  left: 0;
+  right: 0;
+  bottom: 33.33%;
+  border-top: 1px dashed rgba(255, 255, 255, 0.3);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+.crop-region::after {
+  content: "";
+  position: absolute;
+  left: 33.33%;
+  top: 0;
+  bottom: 0;
+  right: 33.33%;
+  border-left: 1px dashed rgba(255, 255, 255, 0.3);
+  border-right: 1px dashed rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+/* Crop Handles */
+.crop-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px solid #4caf50;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+
+.crop-handle-nw {
+  top: -6px;
+  left: -6px;
+  cursor: nw-resize;
+}
+
+.crop-handle-ne {
+  top: -6px;
+  right: -6px;
+  cursor: ne-resize;
+}
+
+.crop-handle-sw {
+  bottom: -6px;
+  left: -6px;
+  cursor: sw-resize;
+}
+
+.crop-handle-se {
+  bottom: -6px;
+  right: -6px;
+  cursor: se-resize;
+}
+
+.crop-handle-n {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: n-resize;
+}
+
+.crop-handle-s {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: s-resize;
+}
+
+.crop-handle-w {
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: w-resize;
+}
+
+.crop-handle-e {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: e-resize;
+}
+
+/* Crop Presets */
+.crop-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.crop-presets-label {
+  font-size: 0.8rem;
+  color: #888;
+  font-weight: 500;
+  margin-right: 0.5rem;
+}
+
+.crop-preset-btn {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #333;
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.crop-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: #444;
+}
+
+.crop-preset-btn.active {
+  background: rgba(76, 175, 80, 0.2);
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.crop-info {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #666;
+  font-family: "SF Mono", "Consolas", monospace;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+}
