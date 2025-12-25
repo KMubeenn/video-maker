@@ -14,11 +14,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, RefreshCw, Upload, Scissors, Music, Image, Play, Trophy, Database, Check } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Loader2,
+  RefreshCw,
+  Upload,
+  Scissors,
+  Music,
+  Image,
+  Play,
+  Trophy,
+  Database,
+  Check,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { videoLibraryApi, type Video as VideoLibraryVideo } from "../api/video-library.api";
+import {
+  videoLibraryApi,
+  type Video as VideoLibraryVideo,
+} from "../api/video-library.api";
 import { teamApi } from "../api/team.api";
 import { useAuth } from "../hooks/useAuth";
 import "./RankingVideos.css";
@@ -461,23 +487,28 @@ export default function RankingVideos() {
   const getPlatformIcon = (url: string) => {
     if (url.includes("tiktok")) return <Music className="h-5 w-5" />;
     if (url.includes("instagram")) return <Image className="h-5 w-5" />;
-    if (url.includes("youtube") || url.includes("youtu.be")) return <Play className="h-5 w-5" />;
+    if (url.includes("youtube") || url.includes("youtu.be"))
+      return <Play className="h-5 w-5" />;
     return null;
   };
 
   // Auto-populate from database
   const [showAutoPopulateDialog, setShowAutoPopulateDialog] = useState(false);
-  const [availableVideos, setAvailableVideos] = useState<VideoLibraryVideo[]>([]);
+  const [availableVideos, setAvailableVideos] = useState<VideoLibraryVideo[]>(
+    []
+  );
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>("all");
-  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(
+    new Set()
+  );
 
   const loadAvailableVideos = async () => {
     try {
       setLoadingVideos(true);
       // Load user videos
       const userVideos = await videoLibraryApi.list();
-      
+
       // Load team videos from all teams user is a member of
       let teamVideos: VideoLibraryVideo[] = [];
       if (user?.id) {
@@ -485,9 +516,7 @@ export default function RankingVideos() {
           const teams = await teamApi.list();
           const teamVideoPromises = teams
             .filter((team) => team.id) // Only process teams with IDs
-            .map((team) => 
-              videoLibraryApi.list(team.id!).catch(() => [])
-            );
+            .map((team) => videoLibraryApi.list(team.id!).catch(() => []));
           const allTeamVideos = await Promise.all(teamVideoPromises);
           teamVideos = allTeamVideos.flat();
         } catch (err) {
@@ -495,13 +524,13 @@ export default function RankingVideos() {
           console.warn("Failed to load team videos:", err);
         }
       }
-      
+
       // Combine and deduplicate by ID
       const allVideos = [...userVideos, ...teamVideos];
       const uniqueVideos = Array.from(
         new Map(allVideos.map((v) => [v.id, v])).values()
       );
-      
+
       setAvailableVideos(uniqueVideos);
     } catch (err: any) {
       setError(err.message || "Failed to load videos");
@@ -530,9 +559,10 @@ export default function RankingVideos() {
     }
 
     // If specific videos are selected, use those; otherwise use filtered list
-    const videosToUse = selectedVideoIds.size > 0
-      ? filteredVideos.filter((v) => v.id && selectedVideoIds.has(v.id))
-      : filteredVideos.slice(0, videoCount);
+    const videosToUse =
+      selectedVideoIds.size > 0
+        ? filteredVideos.filter((v) => v.id && selectedVideoIds.has(v.id))
+        : filteredVideos.slice(0, videoCount);
 
     // Populate videos array
     const newVideos: VideoInput[] = [];
@@ -543,7 +573,7 @@ export default function RankingVideos() {
         const titleSegments: TextSegment[] = dbVideo.title
           ? [{ text: dbVideo.title, color: "white", fontSize: 48 }]
           : [{ text: "", color: "white", fontSize: 48 }];
-        
+
         newVideos.push({
           id: i + 1,
           url: dbVideo.clip_url,
@@ -571,13 +601,14 @@ export default function RankingVideos() {
   ).sort();
 
   // Filter videos for display in dialog
-  const displayVideos = selectedTagFilter && selectedTagFilter !== "all"
-    ? availableVideos.filter((v) =>
-        v.tags?.some((tag) =>
-          tag.toLowerCase().includes(selectedTagFilter.toLowerCase())
+  const displayVideos =
+    selectedTagFilter && selectedTagFilter !== "all"
+      ? availableVideos.filter((v) =>
+          v.tags?.some((tag) =>
+            tag.toLowerCase().includes(selectedTagFilter.toLowerCase())
+          )
         )
-      )
-    : availableVideos;
+      : availableVideos;
 
   return (
     <div className="ranking-container">
@@ -620,7 +651,9 @@ export default function RankingVideos() {
                   onClick={() => handleVideoCountChange(count)}
                   disabled={false}
                 >
-                  <span className="count-number text-xl font-bold">{count}</span>
+                  <span className="count-number text-xl font-bold">
+                    {count}
+                  </span>
                   <span className="count-label text-xs">Videos</span>
                 </Button>
               ))}
@@ -644,6 +677,7 @@ export default function RankingVideos() {
             <div className="first-to-play-hint">
               💡 Select which video plays first (Rank #1 always plays last)
             </div>
+
             {videos.map((video, index) => {
               const hasFailed = failedVideoIndices.has(index);
               const failureInfo = previewState.warnings?.failedVideos.find(
@@ -659,114 +693,117 @@ export default function RankingVideos() {
                     hasFailed ? "has-error" : ""
                   } ${isSelectedFirst ? "first-to-play" : ""}`}
                 >
-                  {/* First to Play Radio Button - only for non-rank-1 videos */}
-                  <div className="first-play-selector">
-                    {!isRankOne ? (
-                      <label
-                        className={`first-play-radio ${
-                          isSelectedFirst ? "selected" : ""
-                        }`}
-                        title="Play this video first"
-                      >
-                        <input
-                          type="radio"
-                          name="firstToPlay"
-                          checked={isSelectedFirst}
-                          onChange={() => setFirstToPlay(index)}
-                        />
-                        <span className="radio-custom"></span>
-                        <span className="radio-label">1st</span>
-                      </label>
-                    ) : (
-                      <div
-                        className="rank-one-indicator flex items-center justify-center"
-                        title="Rank #1 always plays last"
-                      >
-                        <Trophy className="h-6 w-6" />
-                      </div>
-                    )}
-                  </div>
-                  <Badge
-                    variant={hasFailed ? "destructive" : "default"}
-                    className={cn(
-                      "rank-badge min-w-[40px] h-10 text-lg font-bold flex items-center justify-center",
-                      hasFailed && "error"
-                    )}
-                  >
-                    #{index + 1}
-                  </Badge>
-                  <div className="video-inputs">
-                    <div className="input-wrapper">
-                      <div className={cn(
-                        "input-icon flex items-center justify-center",
-                        hasFailed && "error"
-                      )}>
-                        {hasFailed ? (
-                          "⚠️"
-                        ) : (
-                          getPlatformIcon(video.url)
-                        )}
-                      </div>
-                      <Input
-                        type="url"
-                        className={cn(
-                          "url-input flex-1",
-                          hasFailed && "error border-destructive"
-                        )}
-                        placeholder={`Video ${
-                          index + 1
-                        } URL (TikTok, Instagram, YouTube)`}
-                        value={video.url}
-                        onChange={(e) =>
-                          handleVideoChange(index, "url", e.target.value)
-                        }
-                        disabled={false}
-                      />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="upload-icon-btn h-10 w-10"
-                        onClick={() => handleUploadClick(index)}
-                        disabled={uploadingIndex !== null}
-                        title="Upload local video"
-                      >
-                        {uploadingIndex === index ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Upload className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="upload-icon-btn h-10 w-10"
-                        onClick={() => handleEditClick(index)}
-                        disabled={!video.url || loadingEditorIndex === index}
-                        title="Trim/Edit Video"
-                      >
-                        {loadingEditorIndex === index ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Scissors className="h-4 w-4" />
-                        )}
-                      </Button>
+                  <div className="flex items-center gap-2 w-full">
+                    {/* First to Play Radio Button - only for non-rank-1 videos */}
+                    <div className="first-play-selector">
+                      {!isRankOne ? (
+                        <label
+                          className={`first-play-radio ${
+                            isSelectedFirst ? "selected" : ""
+                          }`}
+                          title="Play this video first"
+                        >
+                          <input
+                            type="radio"
+                            name="firstToPlay"
+                            checked={isSelectedFirst}
+                            onChange={() => setFirstToPlay(index)}
+                          />
+                          <span className="radio-custom"></span>
+                          <span className="radio-label">1st</span>
+                        </label>
+                      ) : (
+                        <div
+                          className="rank-one-indicator flex items-center justify-center"
+                          title="Rank #1 always plays last"
+                        >
+                          <Trophy className="h-8 w-8" />
+                        </div>
+                      )}
                     </div>
-                    {hasFailed && failureInfo && (
-                      <Alert variant="destructive" className="inline-error-message mt-2">
-                        <AlertDescription className="inline-error-text">
-                          {failureInfo.error}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    <RichTextInput
-                      value={video.title}
-                      onChange={(segments) =>
-                        handleVideoChange(index, "title", segments)
-                      }
-                      placeholder={`Video ${index + 1} Title`}
-                      disabled={false}
-                    />
+                    <Badge
+                      variant={hasFailed ? "destructive" : "default"}
+                      className={cn(
+                        "rank-badge min-w-[40px] h-10 text-lg font-bold flex items-center justify-center",
+                        hasFailed && "error"
+                      )}
+                    >
+                      #{index + 1}
+                    </Badge>
+                    <div className="video-inputs">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={cn(
+                            "input-icon flex items-center justify-center",
+                            hasFailed && "error"
+                          )}
+                        >
+                          {hasFailed ? "⚠️" : getPlatformIcon(video.url)}
+                        </div>
+                        <Input
+                          type="url"
+                          className={cn(
+                            "url-input flex-1",
+                            hasFailed && "error border-destructive"
+                          )}
+                          placeholder={`Video ${
+                            index + 1
+                          } URL (TikTok, Instagram, YouTube)`}
+                          value={video.url}
+                          onChange={(e) =>
+                            handleVideoChange(index, "url", e.target.value)
+                          }
+                          disabled={false}
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="upload-icon-btn h-10 w-10"
+                          onClick={() => handleUploadClick(index)}
+                          disabled={uploadingIndex !== null}
+                          title="Upload local video"
+                        >
+                          {uploadingIndex === index ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="upload-icon-btn h-10 w-10"
+                          onClick={() => handleEditClick(index)}
+                          disabled={!video.url || loadingEditorIndex === index}
+                          title="Trim/Edit Video"
+                        >
+                          {loadingEditorIndex === index ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Scissors className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      {hasFailed && failureInfo && (
+                        <Alert
+                          variant="destructive"
+                          className="inline-error-message mt-2"
+                        >
+                          <AlertDescription className="inline-error-text">
+                            {failureInfo.error}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
                   </div>
+                  <RichTextInput
+                    value={video.title}
+                    onChange={(segments) =>
+                      handleVideoChange(index, "title", segments)
+                    }
+                    placeholder={`Video ${index + 1} Title`}
+                    disabled={false}
+                  />
                 </div>
               );
             })}
@@ -786,7 +823,9 @@ export default function RankingVideos() {
             <Label className="section-label">Video Dimensions</Label>
             <div className="dimension-controls">
               <Button
-                variant={width === 1080 && height === 1920 ? "default" : "outline"}
+                variant={
+                  width === 1080 && height === 1920 ? "default" : "outline"
+                }
                 className={cn(
                   "dimension-btn flex flex-col h-auto py-4",
                   width === 1080 && height === 1920 && "active"
@@ -802,7 +841,9 @@ export default function RankingVideos() {
                 <span className="dimension-size text-xs">1080×1920</span>
               </Button>
               <Button
-                variant={width === 1920 && height === 1080 ? "default" : "outline"}
+                variant={
+                  width === 1920 && height === 1080 ? "default" : "outline"
+                }
                 className={cn(
                   "dimension-btn flex flex-col h-auto py-4",
                   width === 1920 && height === 1080 && "active"
@@ -818,7 +859,9 @@ export default function RankingVideos() {
                 <span className="dimension-size text-xs">1920×1080</span>
               </Button>
               <Button
-                variant={width === 1080 && height === 1080 ? "default" : "outline"}
+                variant={
+                  width === 1080 && height === 1080 ? "default" : "outline"
+                }
                 className={cn(
                   "dimension-btn flex flex-col h-auto py-4",
                   width === 1080 && height === 1080 && "active"
@@ -925,12 +968,16 @@ export default function RankingVideos() {
       )}
 
       {/* Auto-populate Dialog */}
-      <Dialog open={showAutoPopulateDialog} onOpenChange={setShowAutoPopulateDialog}>
+      <Dialog
+        open={showAutoPopulateDialog}
+        onOpenChange={setShowAutoPopulateDialog}
+      >
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Auto-populate from Video Library</DialogTitle>
             <DialogDescription>
-              Select videos from your library to auto-populate the ranking. You can filter by tags and edit them after selection.
+              Select videos from your library to auto-populate the ranking. You
+              can filter by tags and edit them after selection.
             </DialogDescription>
           </DialogHeader>
 
@@ -938,7 +985,10 @@ export default function RankingVideos() {
             {/* Tag Filter */}
             <div className="space-y-2">
               <Label>Filter by Tag (optional)</Label>
-              <Select value={selectedTagFilter} onValueChange={setSelectedTagFilter}>
+              <Select
+                value={selectedTagFilter}
+                onValueChange={setSelectedTagFilter}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="All tags" />
                 </SelectTrigger>
@@ -962,7 +1012,11 @@ export default function RankingVideos() {
             ) : displayVideos.length === 0 ? (
               <Alert>
                 <AlertDescription>
-                  No videos found{selectedTagFilter && selectedTagFilter !== "all" ? ` with tag "${selectedTagFilter}"` : ""}. 
+                  No videos found
+                  {selectedTagFilter && selectedTagFilter !== "all"
+                    ? ` with tag "${selectedTagFilter}"`
+                    : ""}
+                  .
                   {selectedTagFilter && selectedTagFilter !== "all" && (
                     <Button
                       variant="link"
@@ -977,14 +1031,17 @@ export default function RankingVideos() {
             ) : (
               <div className="space-y-2 max-h-[400px] overflow-y-auto">
                 <div className="text-sm text-muted-foreground mb-2">
-                  {displayVideos.length} video(s) found. Select up to {videoCount} videos or click "Populate All" to use the first {videoCount}.
+                  {displayVideos.length} video(s) found. Select up to{" "}
+                  {videoCount} videos or click "Populate All" to use the first{" "}
+                  {videoCount}.
                 </div>
                 {displayVideos.slice(0, 20).map((video) => (
                   <div
                     key={video.id}
                     className={cn(
                       "flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors",
-                      selectedVideoIds.has(video.id || "") && "bg-accent border-primary"
+                      selectedVideoIds.has(video.id || "") &&
+                        "bg-accent border-primary"
                     )}
                     onClick={() => {
                       if (!video.id) return;
@@ -1001,21 +1058,32 @@ export default function RankingVideos() {
                       });
                     }}
                   >
-                    <div className={cn(
-                      "w-5 h-5 border-2 rounded flex items-center justify-center",
-                      selectedVideoIds.has(video.id || "") && "bg-primary border-primary"
-                    )}>
+                    <div
+                      className={cn(
+                        "w-5 h-5 border-2 rounded flex items-center justify-center",
+                        selectedVideoIds.has(video.id || "") &&
+                          "bg-primary border-primary"
+                      )}
+                    >
                       {selectedVideoIds.has(video.id || "") && (
                         <Check className="h-3 w-3 text-primary-foreground" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{video.title || "Untitled"}</div>
-                      <div className="text-sm text-muted-foreground truncate">{video.clip_url}</div>
+                      <div className="font-medium truncate">
+                        {video.title || "Untitled"}
+                      </div>
+                      <div className="text-sm text-muted-foreground truncate">
+                        {video.clip_url}
+                      </div>
                       {video.tags && video.tags.length > 0 && (
                         <div className="flex gap-1 mt-1 flex-wrap">
                           {video.tags.map((tag) => (
-                            <Badge key={tag} variant="secondary" className="text-xs">
+                            <Badge
+                              key={tag}
+                              variant="secondary"
+                              className="text-xs"
+                            >
                               {tag}
                             </Badge>
                           ))}

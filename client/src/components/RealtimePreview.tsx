@@ -6,6 +6,7 @@ import {
   type TextOverlay,
 } from "../types/timeline";
 import "./RealtimePreview.css";
+import { Pause, Play } from "lucide-react";
 
 interface RealtimePreviewProps {
   mainTitle: TextSegment[];
@@ -882,7 +883,7 @@ export function RealtimePreview({
             onClick={togglePlay}
             disabled={!timeline}
           >
-            {isPlaying ? "⏸️" : "▶️"}
+            {isPlaying ? <Pause /> : <Play />}
           </button>
         </div>
       </div>

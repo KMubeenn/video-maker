@@ -1,0 +1,14 @@
+{
+  "name": "video-maker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo Use Ctrl+Shift+B to start both client and server in VS Code",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
