@@ -696,30 +696,10 @@ export default function RankingVideos() {
               ) : (
                 <>
                   <span className="create-icon">🔄</span>
-                  Regenerate Preview
+                  Regenerate Export
                 </>
               )}
             </button>
-          </div>
-
-          {/* Instructions */}
-          <div className="instructions">
-            <h3 className="instructions-title">💡 How it works:</h3>
-            <ol className="instructions-list">
-              <li>
-                Enter a main title that will appear at the top of the video
-              </li>
-              <li>Choose how many videos to rank (3-6)</li>
-              <li>Paste URLs and give each video a descriptive title</li>
-              <li>Select your preferred video dimensions</li>
-              <li>Click "Regenerate Preview" to see the final video!</li>
-              <li>Download directly from the preview when ready</li>
-            </ol>
-            <div className="instructions-note">
-              ℹ️ Each video will display: <strong>Main Title</strong> (top) and{" "}
-              <strong>#Rank: Video Title</strong> (bottom) throughout its
-              duration
-            </div>
           </div>
         </div>
 

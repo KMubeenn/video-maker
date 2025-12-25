@@ -455,7 +455,8 @@ export async function generateFullPreview(req: Request, res: Response) {
 
     const response: any = {
       success: true,
-      videoUrl: `http://localhost:4000/${outputPath.replace(/\\/g, "/")}`,
+      // Extract just outputs/filename from the absolute path
+      videoUrl: `http://localhost:4000/outputs/${outputFilename}`,
       message: `Successfully created preview with ${downloadResults.successful.length} videos`,
     };
 

@@ -218,7 +218,11 @@ function createFormattedTextFilters(
       // The calling code (createRankingVideo) sets box=1 on the first segment.
       // WE WILL CHANGE STRATEGY: We will output a transparent text filter FIRST that has the box.
 
-      const escFullText = fullLineText.replace(/'/g, "\\'");
+      // Escape special FFmpeg drawtext characters
+      const escFullText = fullLineText
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "\\'")
+        .replace(/:/g, "\\:");
       const boxXPos = `(w/2)${currentXOffset >= 0 ? "+" : ""}${Math.round(
         currentXOffset
       )}`;
@@ -246,7 +250,11 @@ function createFormattedTextFilters(
       // The ERROR is how `createRankingVideo` applies the box.
 
       for (const segment of lineSegments) {
-        const escText = segment.text.replace(/'/g, "\\'");
+        // Escape special FFmpeg drawtext characters: single quotes, colons, backslashes
+        const escText = segment.text
+          .replace(/\\/g, "\\\\")
+          .replace(/'/g, "\\'")
+          .replace(/:/g, "\\:");
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
@@ -291,7 +299,11 @@ function createFormattedTextFilters(
       let currentXOffset = startX;
 
       for (const segment of lineSegments) {
-        const escText = segment.text.replace(/'/g, "\\'");
+        // Escape special FFmpeg drawtext characters: single quotes, colons, backslashes
+        const escText = segment.text
+          .replace(/\\/g, "\\\\")
+          .replace(/'/g, "\\'")
+          .replace(/:/g, "\\:");
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
@@ -333,13 +345,14 @@ export async function createRankingVideo(
   options: RankingVideoOptions,
   outputFilename: string
 ): Promise<string> {
-  const outputsDir = path.join("outputs");
+  const outputsDir = path.resolve("outputs");
   if (!fs.existsSync(outputsDir)) {
     fs.mkdirSync(outputsDir, { recursive: true });
   }
 
-  const finalOutputPath = path.join(outputsDir, outputFilename);
-  const tempDir = path.join(outputsDir, `temp-${Date.now()}`);
+  const finalOutputPathNative = path.resolve(outputsDir, outputFilename);
+  const finalOutputPath = finalOutputPathNative.replace(/\\/g, "/");
+  const tempDir = path.resolve(outputsDir, `temp-${Date.now()}`);
 
   // Create temp directory
   console.log(`Creating temp directory: ${tempDir}`);
@@ -370,8 +383,12 @@ export async function createRankingVideo(
     const rankingFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for rankings
 
     for (const video of options.videos) {
-      const inputPath = path.resolve(video.filePath);
-      const outputPath = path.join(tempDir, `processed-${video.rank}.mp4`);
+      const inputPath = path.resolve(video.filePath).replace(/\\/g, "/");
+      const outputPathNative = path.resolve(
+        tempDir,
+        `processed-${video.rank}.mp4`
+      );
+      const outputPath = outputPathNative.replace(/\\/g, "/");
 
       // Build filters
       const filters: string[] = [];
@@ -606,11 +623,12 @@ export async function createRankingVideo(
     }
 
     // Concatenation
-    const fileListPath = path.join(tempDir, "filelist.txt");
+    const fileListPathNative = path.resolve(tempDir, "filelist.txt");
+    const fileListPath = fileListPathNative.replace(/\\/g, "/");
     const fileListContent = processedVideos
-      .map((p) => `file '${path.resolve(p).replace(/\\/g, "/")}'`)
+      .map((p) => `file '${p}'`)
       .join("\n");
-    fs.writeFileSync(fileListPath, fileListContent);
+    fs.writeFileSync(fileListPathNative, fileListContent); // Use native path for fs operations
 
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
