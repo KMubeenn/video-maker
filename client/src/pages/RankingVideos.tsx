@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   generateFullPreview,
   uploadVideoFile,
@@ -51,18 +51,6 @@ function VideoPreviewPanel({
 }: PreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Calculate aspect ratio for container
-  const aspectRatio = width / height;
-  const getPreviewStyle = () => {
-    if (aspectRatio > 1) {
-      return { width: "100%", paddingTop: `${(1 / aspectRatio) * 100}%` };
-    } else if (aspectRatio < 1) {
-      return { width: "50%", paddingTop: `${(1 / aspectRatio) * 50}%` };
-    } else {
-      return { width: "70%", paddingTop: "70%" };
-    }
-  };
-
   const allVideosReady =
     mainTitle.length > 0 &&
     mainTitle[0].text.trim() !== "" &&
@@ -81,7 +69,7 @@ function VideoPreviewPanel({
       </label>
 
       <div className="preview-container">
-        <div className="preview-frame" style={getPreviewStyle()}>
+        <div className="preview-frame">
           <div className="preview-content">
             {previewState.isGenerating ? (
               <div className="preview-loading">
