@@ -1,7 +1,31 @@
 import { useState, useEffect } from "react";
 import { teamApi, type Team, type TeamMember } from "../api/team.api";
 import { useAuth } from "../hooks/useAuth";
-import { supabase } from "../lib/supabase";
+import { VideoLibrary } from "./VideoLibrary";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Plus, Users, Trash2, UserPlus, Shield, User, Video } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function TeamManagement() {
   const { user } = useAuth();
@@ -13,6 +37,7 @@ export function TeamManagement() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [activeTab, setActiveTab] = useState<"members" | "videos">("members");
 
   useEffect(() => {
     loadTeams();
@@ -60,6 +85,7 @@ export function TeamManagement() {
       setSelectedTeam(team);
       setShowCreateForm(false);
       setNewTeamName("");
+      setError("");
     } catch (err: any) {
       setError(err.message || "Failed to create team");
     }
@@ -72,23 +98,27 @@ export function TeamManagement() {
     }
 
     try {
-      // Find user by email
-      const { data: users } = await supabase
-        .from("user_profiles")
-        .select("id")
-        .eq("email", newMemberEmail)
-        .single();
+      // Search for user via API (bypasses RLS issues)
+      const user = await teamApi.searchUserByEmail(newMemberEmail.trim());
 
-      if (!users) {
-        setError("User not found");
+      if (!user || !user.id) {
+        setError("User not found with that email address. The user must be registered in the system first.");
         return;
       }
 
-      await teamApi.addMember(selectedTeam.id, users.id);
+      await teamApi.addMember(selectedTeam.id, user.id);
       await loadMembers(selectedTeam.id);
       setNewMemberEmail("");
+      setError("");
     } catch (err: any) {
-      setError(err.message || "Failed to add member");
+      // Handle API errors with better messages
+      if (err.response?.status === 404) {
+        setError(err.response.data?.error || "User not found with that email address. The user must be registered in the system first.");
+      } else if (err.response?.status === 400) {
+        setError(err.response.data?.error || "Invalid email address");
+      } else {
+        setError(err.response?.data?.error || err.message || "Failed to add member");
+      }
     }
   };
 
@@ -131,214 +161,273 @@ export function TeamManagement() {
   const currentUserRole = members.find((m) => m.user_id === user?.id)?.role;
 
   return (
-    <div style={{ padding: "20px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-        <h1>Teams</h1>
-        <button
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-bold tracking-tight">Teams</h1>
+        <Button 
           onClick={() => setShowCreateForm(true)}
-          style={{
-            padding: "10px 20px",
-            backgroundColor: "#007bff",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-          }}
+          className="transition-all duration-200 hover:shadow-lg hover:shadow-primary/30 hover:scale-105"
         >
+          <Plus className="mr-2 h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
           Create Team
-        </button>
+        </Button>
       </div>
 
-      {showCreateForm && (
-        <div style={{ marginBottom: "20px", padding: "15px", border: "1px solid #ddd", borderRadius: "4px" }}>
-          <h3>Create New Team</h3>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <input
-              type="text"
-              value={newTeamName}
-              onChange={(e) => setNewTeamName(e.target.value)}
-              placeholder="Team name"
-              style={{ flex: 1, padding: "8px", boxSizing: "border-box" }}
-            />
-            <button
-              onClick={handleCreateTeam}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#28a745",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                cursor: "pointer",
-              }}
-            >
-              Create
-            </button>
-            <button
-              onClick={() => {
-                setShowCreateForm(false);
-                setNewTeamName("");
-              }}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#6c757d",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                cursor: "pointer",
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
       {error && (
-        <div style={{ color: "red", marginBottom: "15px", padding: "10px", backgroundColor: "#f8d7da", borderRadius: "4px" }}>
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: "20px" }}>
-        <div>
-          <h2>My Teams</h2>
-          {loading ? (
-            <div>Loading teams...</div>
-          ) : teams.length === 0 ? (
-            <div>No teams yet. Create one to get started!</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {teams.map((team) => (
-                <div
-                  key={team.id}
-                  onClick={() => setSelectedTeam(team)}
-                  style={{
-                    padding: "10px",
-                    border: selectedTeam?.id === team.id ? "2px solid #007bff" : "1px solid #ddd",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    backgroundColor: selectedTeam?.id === team.id ? "#e7f3ff" : "white",
-                  }}
-                >
-                  {team.name}
-                </div>
-              ))}
+      <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Team</DialogTitle>
+            <DialogDescription>
+              Enter a name for your new team. You can add members after creation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="team-name">Team Name</Label>
+              <Input
+                id="team-name"
+                value={newTeamName}
+                onChange={(e) => setNewTeamName(e.target.value)}
+                placeholder="Enter team name"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleCreateTeam();
+                  }
+                }}
+              />
             </div>
-          )}
-        </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowCreateForm(false);
+              setNewTeamName("");
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateTeam}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {selectedTeam && (
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-              <h2>{selectedTeam.name}</h2>
-              {currentUserRole === "admin" && (
-                <button
-                  onClick={handleDeleteTeam}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#dc3545",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Delete Team
-                </button>
-              )}
-            </div>
-
-            {currentUserRole === "admin" && (
-              <div style={{ marginBottom: "20px", padding: "15px", border: "1px solid #ddd", borderRadius: "4px" }}>
-                <h3>Add Member</h3>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                  <input
-                    type="email"
-                    value={newMemberEmail}
-                    onChange={(e) => setNewMemberEmail(e.target.value)}
-                    placeholder="Member email"
-                    style={{ flex: 1, padding: "8px", boxSizing: "border-box" }}
-                  />
-                  <button
-                    onClick={handleAddMember}
-                    style={{
-                      padding: "8px 16px",
-                      backgroundColor: "#28a745",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Add
-                  </button>
-                </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              My Teams
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
               </div>
-            )}
-
-            <h3>Members</h3>
-            {members.length === 0 ? (
-              <div>No members yet</div>
+            ) : teams.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No teams yet. Create one to get started!</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {members.map((member) => (
-                  <div
-                    key={member.id}
-                    style={{
-                      padding: "15px",
-                      border: "1px solid #ddd",
-                      borderRadius: "4px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div>
-                      <div>
-                        <strong>{member.user_profiles?.full_name || member.user_profiles?.email}</strong>
-                      </div>
-                      <div style={{ color: "#666", fontSize: "0.9em" }}>
-                        {member.user_profiles?.email}
-                      </div>
-                      <div style={{ color: "#666", fontSize: "0.9em" }}>
-                        Role: {member.role}
-                      </div>
-                    </div>
-                    {currentUserRole === "admin" && member.user_id !== user?.id && (
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        <select
-                          value={member.role}
-                          onChange={(e) =>
-                            handleUpdateRole(member.user_id, e.target.value as "admin" | "member")
-                          }
-                          style={{ padding: "5px" }}
-                        >
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                        <button
-                          onClick={() => handleRemoveMember(member.user_id)}
-                          style={{
-                            padding: "5px 10px",
-                            backgroundColor: "#dc3545",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
+              <div className="space-y-2">
+                {teams.map((team) => (
+                  <Button
+                    key={team.id}
+                    variant={selectedTeam?.id === team.id ? "default" : "outline"}
+                    className={cn(
+                      "w-full justify-start transition-all duration-200",
+                      selectedTeam?.id === team.id 
+                        ? "bg-primary text-primary-foreground shadow-md" 
+                        : "hover:bg-accent hover:border-primary/50 hover:shadow-sm hover:scale-[1.02]"
                     )}
-                  </div>
+                    onClick={() => setSelectedTeam(team)}
+                  >
+                    {team.name}
+                  </Button>
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {selectedTeam ? (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>{selectedTeam.name}</CardTitle>
+                    <CardDescription>Manage team members, videos, and settings</CardDescription>
+                  </div>
+                  {currentUserRole === "admin" && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteTeam}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Team
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Tab Navigation */}
+                <div className="flex gap-2 border-b">
+                  <Button
+                    variant={activeTab === "members" ? "default" : "ghost"}
+                    onClick={() => setActiveTab("members")}
+                    className={cn(
+                      "rounded-b-none transition-all duration-200",
+                      activeTab === "members" 
+                        ? "bg-primary text-primary-foreground shadow-md" 
+                        : "hover:bg-accent"
+                    )}
+                  >
+                    <Users className="mr-2 h-4 w-4" />
+                    Members
+                  </Button>
+                  <Button
+                    variant={activeTab === "videos" ? "default" : "ghost"}
+                    onClick={() => setActiveTab("videos")}
+                    className={cn(
+                      "rounded-b-none transition-all duration-200",
+                      activeTab === "videos" 
+                        ? "bg-primary text-primary-foreground shadow-md" 
+                        : "hover:bg-accent"
+                    )}
+                  >
+                    <Video className="mr-2 h-4 w-4" />
+                    Videos
+                  </Button>
+                </div>
+
+                {/* Members Tab */}
+                {activeTab === "members" && (
+                  <>
+                {currentUserRole === "admin" && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <UserPlus className="h-4 w-4" />
+                        Add Member
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex gap-2">
+                        <Input
+                          type="email"
+                          value={newMemberEmail}
+                          onChange={(e) => setNewMemberEmail(e.target.value)}
+                          placeholder="Member email"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              handleAddMember();
+                            }
+                          }}
+                        />
+                        <Button 
+                          onClick={handleAddMember}
+                          className="transition-all duration-200 hover:shadow-md hover:scale-105"
+                        >
+                          <UserPlus className="mr-2 h-4 w-4 transition-transform duration-200 hover:scale-110" />
+                          Add
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Members</h3>
+                  {members.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No members yet</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {members.map((member) => (
+                        <Card 
+                          key={member.id}
+                          className="transition-all duration-200 hover:shadow-md hover:border-primary/50 hover:-translate-y-0.5"
+                        >
+                          <CardContent className="flex items-center justify-between p-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium transition-colors duration-200 hover:text-primary">
+                                  {member.user_profiles?.full_name || member.user_profiles?.email}
+                                </p>
+                                <Badge 
+                                  variant={member.role === "admin" ? "default" : "secondary"}
+                                  className="transition-all duration-200 hover:scale-105 hover:shadow-sm"
+                                >
+                                  {member.role === "admin" ? (
+                                    <Shield className="mr-1 h-3 w-3" />
+                                  ) : (
+                                    <User className="mr-1 h-3 w-3" />
+                                  )}
+                                  {member.role}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                {member.user_profiles?.email}
+                              </p>
+                            </div>
+                            {currentUserRole === "admin" && member.user_id !== user?.id && (
+                              <div className="flex items-center gap-2">
+                                <Select
+                                  value={member.role}
+                                  onValueChange={(value) =>
+                                    handleUpdateRole(member.user_id, value as "admin" | "member")
+                                  }
+                                >
+                                  <SelectTrigger className="w-32 transition-all duration-200 hover:border-primary/50 hover:shadow-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="member">Member</SelectItem>
+                                    <SelectItem value="admin">Admin</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleRemoveMember(member.user_id)}
+                                  className="transition-all duration-200 hover:bg-destructive/90 hover:shadow-md hover:scale-105"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Remove
+                                </Button>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                  </>
+                )}
+
+                {/* Videos Tab */}
+                {activeTab === "videos" && (
+                  <div className="pt-4">
+                    <VideoLibrary teamId={selectedTeam.id} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
+        ) : (
+          <Card>
+            <CardContent className="flex items-center justify-center py-12">
+              <p className="text-muted-foreground">Select a team to view details</p>
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>
   );
 }
-

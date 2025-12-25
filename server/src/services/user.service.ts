@@ -64,3 +64,17 @@ export async function deleteUser(userId: string) {
   return { success: true };
 }
 
+export async function getUserByEmail(email: string) {
+  const { data, error } = await supabaseService
+    .from("user_profiles")
+    .select("id, email, full_name")
+    .eq("email", email.toLowerCase().trim())
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to search for user: ${error.message}`);
+  }
+
+  return data;
+}
+

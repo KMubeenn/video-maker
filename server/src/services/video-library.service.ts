@@ -91,9 +91,49 @@ export async function updateVideo(
   // First check access
   await getVideoById(videoId, userId);
 
+  // Filter out fields that shouldn't be updated
+  const {
+    id,
+    created_at,
+    created_by,
+    user_id,
+    team_id,
+    ...allowedUpdates
+  } = updates;
+
+  // Clean up the updates object - remove undefined/null values and ensure proper types
+  const cleanUpdates: any = {};
+  
+  if (allowedUpdates.clip_url !== undefined) {
+    cleanUpdates.clip_url = allowedUpdates.clip_url;
+  }
+  if (allowedUpdates.tags !== undefined) {
+    cleanUpdates.tags = Array.isArray(allowedUpdates.tags) 
+      ? allowedUpdates.tags 
+      : allowedUpdates.tags ? [allowedUpdates.tags] : [];
+  }
+  if (allowedUpdates.first !== undefined) {
+    cleanUpdates.first = allowedUpdates.first === true || allowedUpdates.first === "true" || allowedUpdates.first === "TRUE";
+  }
+  if (allowedUpdates.trim !== undefined) {
+    cleanUpdates.trim = allowedUpdates.trim === true || allowedUpdates.trim === "true" || allowedUpdates.trim === "TRUE";
+  }
+  if (allowedUpdates.title !== undefined) {
+    cleanUpdates.title = allowedUpdates.title || null;
+  }
+  if (allowedUpdates.source_platform !== undefined) {
+    cleanUpdates.source_platform = allowedUpdates.source_platform;
+  }
+  if (allowedUpdates.notes !== undefined) {
+    cleanUpdates.notes = allowedUpdates.notes || null;
+  }
+  if (allowedUpdates.date_added !== undefined) {
+    cleanUpdates.date_added = allowedUpdates.date_added || null;
+  }
+
   const { data, error } = await supabaseService
     .from("videos")
-    .update(updates)
+    .update(cleanUpdates)
     .eq("id", videoId)
     .select()
     .single();
