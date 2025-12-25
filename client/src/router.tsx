@@ -1,4 +1,8 @@
-import { createRouter, createRootRoute, createRoute } from "@tanstack/react-router";
+import {
+  createRouter,
+  createRootRoute,
+  createRoute,
+} from "@tanstack/react-router";
 import { RootLayout } from "./routes/__root";
 import { LoginPage } from "./routes/login";
 import { SignupPage } from "./routes/signup";
@@ -8,6 +12,7 @@ import { AdminPage } from "./routes/admin";
 import { RankingPage } from "./routes/ranking";
 import { MergePage } from "./routes/merge";
 import { IndexPage } from "./routes/index";
+import { AssetsPage } from "./pages/AssetsPage";
 
 // Root route
 const rootRoute = createRootRoute({
@@ -59,6 +64,12 @@ const rankingRoute = createRoute({
   component: RankingPage,
 });
 
+const assetsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/assets",
+  component: () => <AssetsPage />,
+});
+
 const mergeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/merge",
@@ -75,6 +86,7 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   rankingRoute,
   mergeRoute,
+  assetsRoute,
 ]);
 
 // Create the router
@@ -86,4 +98,3 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
-

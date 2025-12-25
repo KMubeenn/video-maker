@@ -1,13 +1,20 @@
 import type { MemeSound } from "../types/timeline";
-
-const API_URL = "http://localhost:4000/api/meme-sounds";
+import { listAssets } from "../lib/assets";
 
 export const memeSoundsApi = {
   list: async (): Promise<MemeSound[]> => {
-    const response = await fetch(API_URL);
-    if (!response.ok) {
-      throw new Error("Failed to fetch meme sounds");
+    try {
+      const assets = await listAssets("audio");
+
+      return assets.map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        filename: asset.name, // Mapping asset.name to filename
+        url: asset.url,
+      }));
+    } catch (error) {
+      console.error("Failed to fetch meme sounds from assets:", error);
+      throw error;
     }
-    return response.json();
   },
 };

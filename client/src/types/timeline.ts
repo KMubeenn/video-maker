@@ -23,7 +23,7 @@ export interface MemeSound {
   id: string; // Filename usually
   name: string; // Display name
   filename: string;
-  url: string; // /assets/sounds/filename
+  url: string; // Supabase public URL
 }
 
 export interface VideoMemeSound {
