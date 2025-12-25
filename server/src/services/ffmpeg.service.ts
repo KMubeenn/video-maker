@@ -218,7 +218,11 @@ function createFormattedTextFilters(
       // The calling code (createRankingVideo) sets box=1 on the first segment.
       // WE WILL CHANGE STRATEGY: We will output a transparent text filter FIRST that has the box.
 
-      const escFullText = fullLineText.replace(/'/g, "\\'");
+      // Escape special FFmpeg drawtext characters
+      const escFullText = fullLineText
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "\\'")
+        .replace(/:/g, "\\:");
       const boxXPos = `(w/2)${currentXOffset >= 0 ? "+" : ""}${Math.round(
         currentXOffset
       )}`;
@@ -246,7 +250,11 @@ function createFormattedTextFilters(
       // The ERROR is how `createRankingVideo` applies the box.
 
       for (const segment of lineSegments) {
-        const escText = segment.text.replace(/'/g, "\\'");
+        // Escape special FFmpeg drawtext characters: single quotes, colons, backslashes
+        const escText = segment.text
+          .replace(/\\/g, "\\\\")
+          .replace(/'/g, "\\'")
+          .replace(/:/g, "\\:");
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
@@ -291,7 +299,11 @@ function createFormattedTextFilters(
       let currentXOffset = startX;
 
       for (const segment of lineSegments) {
-        const escText = segment.text.replace(/'/g, "\\'");
+        // Escape special FFmpeg drawtext characters: single quotes, colons, backslashes
+        const escText = segment.text
+          .replace(/\\/g, "\\\\")
+          .replace(/'/g, "\\'")
+          .replace(/:/g, "\\:");
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
@@ -309,33 +321,38 @@ function createFormattedTextFilters(
   return filters;
 }
 
+// ... types
 export interface RankingVideoInput {
   filePath: string;
-  title: TextSegment[]; // Changed to TextSegment[]
+  title: TextSegment[];
   rank: number;
+  trimStart?: number | undefined;
+  trimEnd?: number | undefined;
+  // Crop values (in source video pixels, applied after trim)
+  cropX?: number | undefined;
+  cropY?: number | undefined;
+  cropWidth?: number | undefined;
+  cropHeight?: number | undefined;
 }
 
 export interface RankingVideoOptions {
-  mainTitle: TextSegment[]; // Changed to TextSegment[]
+  mainTitle: TextSegment[];
   videos: RankingVideoInput[];
   width?: number;
   height?: number;
 }
-
-/**
- * Create a ranking video with main title and individual video titles
- */
 export async function createRankingVideo(
   options: RankingVideoOptions,
   outputFilename: string
 ): Promise<string> {
-  const outputsDir = path.join("outputs");
+  const outputsDir = path.resolve("outputs");
   if (!fs.existsSync(outputsDir)) {
     fs.mkdirSync(outputsDir, { recursive: true });
   }
 
-  const finalOutputPath = path.join(outputsDir, outputFilename);
-  const tempDir = path.join(outputsDir, `temp-${Date.now()}`);
+  const finalOutputPathNative = path.resolve(outputsDir, outputFilename);
+  const finalOutputPath = finalOutputPathNative.replace(/\\/g, "/");
+  const tempDir = path.resolve(outputsDir, `temp-${Date.now()}`);
 
   // Create temp directory
   console.log(`Creating temp directory: ${tempDir}`);
@@ -361,19 +378,64 @@ export async function createRankingVideo(
     const totalRankingHeight = totalVideos * rankingItemHeight;
     const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
 
-    // Font paths - change these to use different fonts
-    // Common fonts: Arial.ttf, arialbd.ttf (bold), impact.ttf, calibri.ttf, etc.
+    // Font paths
     const titleFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for main title
     const rankingFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for rankings
 
     for (const video of options.videos) {
-      const inputPath = path.resolve(video.filePath);
-      const outputPath = path.join(tempDir, `processed-${video.rank}.mp4`);
+      const inputPath = path.resolve(video.filePath).replace(/\\/g, "/");
+      const outputPathNative = path.resolve(
+        tempDir,
+        `processed-${video.rank}.mp4`
+      );
+      const outputPath = outputPathNative.replace(/\\/g, "/");
 
       // Build filters
       const filters: string[] = [];
 
+      // 0. Trimming
+      const trimStart =
+        video.trimStart !== undefined ? Number(video.trimStart) : undefined;
+      const trimEnd =
+        video.trimEnd !== undefined ? Number(video.trimEnd) : undefined;
+
+      console.log(
+        `Video ${video.rank} trim config: start=${trimStart}, end=${trimEnd}`
+      );
+
+      if (
+        trimStart !== undefined &&
+        !isNaN(trimStart) &&
+        trimEnd !== undefined &&
+        !isNaN(trimEnd) &&
+        trimEnd > trimStart
+      ) {
+        console.log(`Applying trim filter: start=${trimStart} end=${trimEnd}`);
+        filters.push(
+          `trim=start=${trimStart}:end=${trimEnd},setpts=PTS-STARTPTS`
+        );
+      } else if (trimStart !== undefined && !isNaN(trimStart)) {
+        filters.push(`trim=start=${trimStart},setpts=PTS-STARTPTS`);
+      }
+
+      // 0.5 User Crop (applied after trim, before layout scaling)
+      // This crops the source video to user-specified region before scaling to canvas
+      const hasCrop =
+        video.cropWidth &&
+        video.cropHeight &&
+        video.cropWidth > 0 &&
+        video.cropHeight > 0;
+      if (hasCrop) {
+        const cx = video.cropX ?? 0;
+        const cy = video.cropY ?? 0;
+        console.log(
+          `Applying user crop filter: ${video.cropWidth}x${video.cropHeight} at (${cx},${cy})`
+        );
+        filters.push(`crop=${video.cropWidth}:${video.cropHeight}:${cx}:${cy}`);
+      }
+
       // 1. Scale video to fill full width (may crop top/bottom)
+      // After user crop, the source dimensions are cropWidth x cropHeight
       filters.push(
         `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
       );
@@ -386,22 +448,16 @@ export async function createRankingVideo(
       // 3. Pad to full canvas - video positioned below title area
       filters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
 
-      // 4. Add main title at the top center with background box using formatted text
+      // 4. Add main title using formatted text
       const mainTitleFilters = createFormattedTextFilters(
         options.mainTitle,
         "(w-text_w)/2",
         90,
         titleFont
       );
-      // Add box background to first segment only - REMOVED (now handled by createFormattedTextFilters)
-      /* if (mainTitleFilters.length > 0 && mainTitleFilters[0]) {
-        // ...
-      } */
-
       filters.push(...mainTitleFilters);
 
-      // 5. Add all ranking numbers on the left (centered vertically)
-      // Track which ranks have been revealed so far (based on playback order, not rank order)
+      // 5. Add all ranking numbers
       const revealedRanks = new Set<number>();
       for (let j = 0; j <= options.videos.indexOf(video); j++) {
         const revealedVideo = options.videos[j];
@@ -415,16 +471,15 @@ export async function createRankingVideo(
         const yPos = rankingStartY + i * rankingItemHeight;
         const videoInfo = options.videos.find((v) => v.rank === rankNum);
 
-        // Determine color - yellow for current video, white for others
         const numColor = rankNum === video.rank ? "yellow" : "white";
         const titleColor = rankNum === video.rank ? "yellow" : "white";
 
-        // Add rank number (always visible) with black border for visibility
+        // Add rank number
         filters.push(
           `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
         );
 
-        // Add title text (only show for videos that have been revealed so far) using formatted text
+        // Add title text
         if (revealedRanks.has(rankNum) && videoInfo) {
           const videoTitleFilters = createFormattedTextFilters(
             videoInfo.title,
@@ -433,7 +488,7 @@ export async function createRankingVideo(
             rankingFont,
             titleColor,
             48,
-            true // Add black border for visibility
+            true
           );
           filters.push(...videoTitleFilters);
         }
@@ -444,7 +499,6 @@ export async function createRankingVideo(
       await new Promise<void>((resolve, reject) => {
         const command = ffmpeg(inputPath);
 
-        // First, probe the input to check if it has audio
         ffmpeg.ffprobe(inputPath, (err, metadata) => {
           if (err) {
             reject(err);
@@ -456,16 +510,52 @@ export async function createRankingVideo(
           );
 
           if (hasAudio) {
-            // Video has audio - process normally
+            // If trimming audio, we need atrim filter
+            const audioFilters: string[] = [];
+            if (
+              trimStart !== undefined &&
+              !isNaN(trimStart) &&
+              trimEnd !== undefined &&
+              !isNaN(trimEnd) &&
+              trimEnd > trimStart
+            ) {
+              console.log(
+                `Applying audio trim filter: start=${trimStart} end=${trimEnd}`
+              );
+              audioFilters.push(
+                `atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS`
+              );
+            } else if (trimStart !== undefined && !isNaN(trimStart)) {
+              console.log(`Applying audio trim filter: start=${trimStart}`);
+              audioFilters.push(
+                `atrim=start=${trimStart},asetpts=PTS-STARTPTS`
+              );
+            }
+
             command
               .videoFilters(filters)
               .audioCodec("aac")
-              .audioBitrate("320k") // High quality audio
-              .audioFrequency(44100) // Standardize sample rate to prevent robot voice on concat
-              .audioChannels(2) // Standardize to stereo
+              .audioBitrate("320k")
+              .audioFrequency(44100)
+              .audioChannels(2)
               .videoCodec("libx264")
-              .outputOptions(["-preset", "fast", "-crf", "23"]) // Professional quality
-              .output(outputPath)
+              .outputOptions([
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-r",
+                "30",
+                "-pix_fmt",
+                "yuv420p",
+              ])
+              .output(outputPath);
+
+            if (audioFilters.length > 0) {
+              command.audioFilters(audioFilters);
+            }
+
+            command
               .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
               .on("end", () => {
                 console.log(`Successfully processed video ${video.rank}`);
@@ -478,12 +568,15 @@ export async function createRankingVideo(
               })
               .run();
           } else {
-            // Video has NO audio - add silent audio
             console.log(
               `Video ${video.rank} has no audio - adding silent audio`
             );
+            // Complex filter for no-audio case needs careful handling of trim
+            // Since we generate silence, we don't need to trim the silence, but we do need to match the TRIMMED video duration.
+            // However, regular 'trim' on video changes duration.
+            // ffmpeg's 'shortest' option against generated silence works but assumes silence > video.
+            // anullsrc generates infinite silence.
 
-            // Build complex filter: video filters + silent audio generation
             const videoFilterString = filters.join(",");
             const filterComplex = `[0:v]${videoFilterString}[outv];anullsrc=channel_layout=stereo:sample_rate=44100[silent]`;
 
@@ -500,11 +593,15 @@ export async function createRankingVideo(
                 "fast",
                 "-crf",
                 "23",
+                "-r",
+                "30",
+                "-pix_fmt",
+                "yuv420p",
                 "-c:a",
                 "aac",
                 "-b:a",
                 "320k",
-                "-shortest", // Match audio duration to video duration
+                "-shortest",
               ])
               .output(outputPath)
               .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
@@ -525,18 +622,14 @@ export async function createRankingVideo(
       });
     }
 
-    // Create file list for concatenation
-    const fileListPath = path.join(tempDir, "filelist.txt");
+    // Concatenation
+    const fileListPathNative = path.resolve(tempDir, "filelist.txt");
+    const fileListPath = fileListPathNative.replace(/\\/g, "/");
     const fileListContent = processedVideos
-      .map((p) => `file '${path.resolve(p).replace(/\\/g, "/")}'`)
+      .map((p) => `file '${p}'`)
       .join("\n");
-    fs.writeFileSync(fileListPath, fileListContent);
+    fs.writeFileSync(fileListPathNative, fileListContent); // Use native path for fs operations
 
-    console.log("File list content:");
-    console.log(fileListContent);
-
-    // Concatenate videos using concat protocol with re-encoding
-    // This is more reliable than concat filter for handling different video properties
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
         .input(fileListPath)
@@ -552,6 +645,8 @@ export async function createRankingVideo(
           "aac",
           "-b:a",
           "320k",
+          "-pix_fmt",
+          "yuv420p",
         ])
         .output(finalOutputPath)
         .on("start", (cmd) => console.log("Concatenating videos:", cmd))
@@ -566,9 +661,7 @@ export async function createRankingVideo(
         .run();
     });
 
-    // Clean up temp folder
     fs.rmSync(tempDir, { recursive: true, force: true });
-
     return finalOutputPath;
   } catch (error) {
     if (fs.existsSync(tempDir)) {

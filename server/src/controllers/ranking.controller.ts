@@ -105,14 +105,22 @@ export async function preparePreview(req: Request, res: Response) {
 
 export interface VideoRankInput {
   url: string;
-  title: TextSegment[]; // Changed to TextSegment[]
+  title: TextSegment[];
+  trimStart?: number;
+  trimEnd?: number;
+  // Crop values (in source video pixels)
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
 }
 
 export interface CreateRankingRequest {
-  mainTitle: TextSegment[]; // Changed to TextSegment[]
+  mainTitle: TextSegment[];
   videos: VideoRankInput[];
   width?: number;
   height?: number;
+  firstToPlay?: number;
 }
 
 export async function createRanking(req: Request, res: Response) {
@@ -198,12 +206,20 @@ export async function createRanking(req: Request, res: Response) {
       const originalIndex = urls.findIndex(
         (url) => url === downloaded.originalUrl
       );
+      const originalVideo = videos[originalIndex];
       return {
         filePath: downloaded.filePath,
-        title: videos[originalIndex]?.title || [
+        title: originalVideo?.title || [
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
         rank: originalIndex + 1,
+        trimStart: originalVideo?.trimStart,
+        trimEnd: originalVideo?.trimEnd,
+        // Include crop values for FFmpeg
+        cropX: originalVideo?.cropX,
+        cropY: originalVideo?.cropY,
+        cropWidth: originalVideo?.cropWidth,
+        cropHeight: originalVideo?.cropHeight,
       };
     });
 
@@ -280,11 +296,12 @@ export async function createRanking(req: Request, res: Response) {
  */
 export async function generateFullPreview(req: Request, res: Response) {
   try {
-    const { mainTitle, videos, width, height } = req.body as {
+    const { mainTitle, videos, width, height, firstToPlay } = req.body as {
       mainTitle: TextSegment[];
       videos: VideoRankInput[];
       width?: number;
       height?: number;
+      firstToPlay?: number; // Index of video to play first (must be >= 1, not rank #1)
     };
 
     // Validation (same as createRanking)
@@ -365,12 +382,20 @@ export async function generateFullPreview(req: Request, res: Response) {
       const originalIndex = urls.findIndex(
         (url) => url === downloaded.originalUrl
       );
+      const originalVideo = videos[originalIndex];
       return {
         filePath: downloaded.filePath,
-        title: videos[originalIndex]?.title || [
+        title: originalVideo?.title || [
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
         rank: originalIndex + 1,
+        trimStart: originalVideo?.trimStart,
+        trimEnd: originalVideo?.trimEnd,
+        // Include crop values for FFmpeg
+        cropX: originalVideo?.cropX,
+        cropY: originalVideo?.cropY,
+        cropWidth: originalVideo?.cropWidth,
+        cropHeight: originalVideo?.cropHeight,
       };
     });
 
@@ -384,14 +409,28 @@ export async function generateFullPreview(req: Request, res: Response) {
     // Deterministic shuffle to match frontend "random" look
     // Using simple hash sort based on rank (equivalent to id in frontend)
     // Formula: ((rank * 13 + 7) % 5)
-    otherVideos.sort((a, b) => {
+    let sortedOthers = [...otherVideos].sort((a, b) => {
       const valA = (a.rank * 13 + 7) % 5;
       const valB = (b.rank * 13 + 7) % 5;
       return valA - valB;
     });
 
-    // Reconstruct array: shuffled videos + rank 1 at the end
-    const shuffledInputs = [...otherVideos, rank1Video];
+    // If firstToPlay is specified (and valid), move that video to the front
+    if (firstToPlay !== undefined && firstToPlay !== null && firstToPlay >= 1) {
+      // firstToPlay is the 0-based index in the original videos array
+      // rank = index + 1
+      const targetRank = firstToPlay + 1;
+      const selectedVideo = sortedOthers.find((v) => v.rank === targetRank);
+      if (selectedVideo) {
+        // Remove from list and prepend
+        sortedOthers = sortedOthers.filter((v) => v.rank !== targetRank);
+        sortedOthers.unshift(selectedVideo);
+        console.log(`User selected rank #${targetRank} to play first`);
+      }
+    }
+
+    // Reconstruct array: sorted videos + rank 1 at the end
+    const shuffledInputs = [...sortedOthers, rank1Video];
 
     console.log(
       `Playback order: ${shuffledInputs.map((v) => `#${v.rank}`).join(" → ")}`
@@ -416,7 +455,8 @@ export async function generateFullPreview(req: Request, res: Response) {
 
     const response: any = {
       success: true,
-      videoUrl: `http://localhost:4000/${outputPath.replace(/\\/g, "/")}`,
+      // Extract just outputs/filename from the absolute path
+      videoUrl: `http://localhost:4000/outputs/${outputFilename}`,
       message: `Successfully created preview with ${downloadResults.successful.length} videos`,
     };
 

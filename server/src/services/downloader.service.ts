@@ -32,6 +32,7 @@ function detectPlatform(url: string): string {
   if (url.includes("tiktok.com")) return "tiktok";
   if (url.includes("instagram.com")) return "instagram";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
+  if (url.includes("localhost") || url.includes("127.0.0.1")) return "local";
   return "unknown";
 }
 
@@ -126,6 +127,24 @@ export async function downloadVideo(
       await downloadYouTube(url, outputPath);
     } else if (platform === "tiktok" || platform === "instagram") {
       await downloadWithYtDlp(url, outputPath);
+    } else if (platform === "local") {
+      // Handle local file
+      // URL format: http://localhost:4000/uploads/filename.mp4
+      const parts = url.split("uploads/");
+      if (parts.length < 2) throw new Error("Invalid local URL format");
+
+      const filename = parts[1] || "";
+      // Sanitize filename to prevent directory traversal
+      const safeFilename = path.basename(filename);
+      const sourcePath = path.join(process.cwd(), "uploads", safeFilename);
+
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error(`Local file not found: ${sourcePath}`);
+      }
+
+      // Copy file to the expected output path (so it follows the specific naming convention of the pipeline)
+      // Or we could just symlink, but copying is safer for cleanup logic
+      fs.copyFileSync(sourcePath, outputPath);
     } else {
       throw new Error(`Unsupported platform: ${platform}`);
     }
