@@ -44,7 +44,9 @@ export interface TextSegment {
 
 export interface RankingVideoInput {
   url: string;
-  title: TextSegment[]; // Changed from string to TextSegment[]
+  title: TextSegment[];
+  trimStart?: number;
+  trimEnd?: number;
 }
 
 export const createRankingVideo = async (
@@ -90,6 +92,36 @@ export const generateFullPreview = async (
     width,
     height,
     firstToPlay: firstToPlay ?? undefined,
+  });
+  return res.data;
+};
+
+export interface PreparePreviewResponse {
+  success: boolean;
+  videos: Array<{
+    id: number;
+    url: string;
+    originalUrl: string;
+    duration: number;
+    width: number;
+    height: number;
+  }>;
+  warnings?: {
+    message: string;
+    failedVideos: Array<{
+      url: string;
+      index: number;
+      error: string;
+      platform: string;
+    }>;
+  };
+}
+
+export const preparePreview = async (
+  videos: Array<{ url: string; id: number }>
+): Promise<PreparePreviewResponse> => {
+  const res = await axios.post(`${RANKING_API_URL}/prepare-preview`, {
+    videos,
   });
   return res.data;
 };

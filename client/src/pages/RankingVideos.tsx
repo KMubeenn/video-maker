@@ -2,11 +2,13 @@ import { useState, useRef } from "react";
 import {
   generateFullPreview,
   uploadVideoFile,
+  preparePreview,
   type RankingVideoInput,
   type TextSegment,
 } from "../api/video.api";
 import { RichTextInput } from "../components/RichTextInput";
 import { RealtimePreview } from "../components/RealtimePreview";
+import { VideoEditor } from "../components/VideoEditor";
 import "./RankingVideos.css";
 
 interface VideoInput extends Omit<RankingVideoInput, "title"> {
@@ -257,6 +259,72 @@ export default function RankingVideos() {
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
 
+  // Editor State
+  const [editingVideoIndex, setEditingVideoIndex] = useState<number | null>(
+    null
+  );
+
+  const [loadingEditorIndex, setLoadingEditorIndex] = useState<number | null>(
+    null
+  );
+  const [editorUrl, setEditorUrl] = useState<string | null>(null);
+
+  const handleEditClick = async (index: number) => {
+    const video = videos[index];
+    if (!video.url) return;
+
+    // Check if it's a local file (playable directly)
+    const isLocal =
+      video.url.includes("localhost") || video.url.startsWith("blob:");
+
+    if (isLocal) {
+      setEditorUrl(video.url);
+      setEditingVideoIndex(index);
+    } else {
+      // It's an external URL (YouTube/Instagram) - we need to download/cache it first
+      setLoadingEditorIndex(index);
+      try {
+        // Use preparePreview logic to get a playable local URL
+        const response = await preparePreview([
+          {
+            url: video.url,
+            id: video.id,
+          },
+        ]);
+
+        if (response.success && response.videos.length > 0) {
+          setEditorUrl(response.videos[0].url);
+          setEditingVideoIndex(index);
+        } else {
+          setError(
+            `Could not load video for editing: ${
+              response.warnings?.message || "Unknown error"
+            }`
+          );
+        }
+      } catch (err: unknown) {
+        console.error("Failed to prepare video for editing:", err);
+        setError("Failed to load video for editing. Please try again.");
+      } finally {
+        setLoadingEditorIndex(null);
+      }
+    }
+  };
+
+  const handleSaveEdit = (start: number, end: number) => {
+    if (editingVideoIndex === null) return;
+
+    const newVideos = [...videos];
+    newVideos[editingVideoIndex] = {
+      ...newVideos[editingVideoIndex],
+      trimStart: start,
+      trimEnd: end,
+    };
+    setVideos(newVideos);
+    // Clear preview because trimming changed
+    setPreviewState({ isGenerating: false, videoUrl: null, error: null });
+  };
+
   // Upload Logic
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -330,7 +398,12 @@ export default function RankingVideos() {
     try {
       const response = await generateFullPreview(
         mainTitle,
-        videos.map((v) => ({ url: v.url, title: v.title })),
+        videos.map((v) => ({
+          url: v.url,
+          title: v.title,
+          trimStart: v.trimStart,
+          trimEnd: v.trimEnd,
+        })),
         width,
         height,
         firstToPlay
@@ -500,6 +573,18 @@ export default function RankingVideos() {
                           <span className="mini-spinner"></span>
                         ) : (
                           "📂"
+                        )}
+                      </button>
+                      <button
+                        className="upload-icon-btn"
+                        onClick={() => handleEditClick(index)}
+                        disabled={!video.url || loadingEditorIndex === index}
+                        title="Trim/Edit Video"
+                      >
+                        {loadingEditorIndex === index ? (
+                          <span className="mini-spinner"></span>
+                        ) : (
+                          "✂️"
                         )}
                       </button>
                     </div>
@@ -692,6 +777,20 @@ export default function RankingVideos() {
           )}
         </div>
       </div>
+
+      {editingVideoIndex !== null && (
+        <VideoEditor
+          url={editorUrl || videos[editingVideoIndex].url}
+          isOpen={true}
+          onClose={() => {
+            setEditingVideoIndex(null);
+            setEditorUrl(null);
+          }}
+          onSave={handleSaveEdit}
+          initialTrimStart={videos[editingVideoIndex].trimStart}
+          initialTrimEnd={videos[editingVideoIndex].trimEnd}
+        />
+      )}
     </div>
   );
 }

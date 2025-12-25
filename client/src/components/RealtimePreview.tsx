@@ -9,7 +9,13 @@ import "./RealtimePreview.css";
 
 interface RealtimePreviewProps {
   mainTitle: TextSegment[];
-  videos: { id: number; url: string; title: TextSegment[] }[];
+  videos: {
+    id: number;
+    url: string;
+    title: TextSegment[];
+    trimStart?: number;
+    trimEnd?: number;
+  }[];
   width: number;
   height: number;
   firstToPlay?: number | null; // Index of video to play first (not rank #1)
@@ -35,6 +41,65 @@ function useDebounce<T>(value: T, delay: number): T {
   }, [value, delay]);
   return debouncedValue;
 }
+
+// Helper: Normalize colors to match FFmpeg backend
+const normalizeColor = (color: string | undefined): string => {
+  if (!color) return "white";
+  const map: Record<string, string> = {
+    "#FFD700": "#FFC700",
+    "#FF6B6B": "#E63946",
+    "#4ECDC4": "#06AED5",
+    "#95E1D3": "#2D9E6D",
+  };
+  return map[color] || color;
+};
+
+// Helper: Measure text segment width
+const measureSegment = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  fontSize: number
+) => {
+  ctx.font = `${fontSize}px Impact, Arial, sans-serif`;
+  return ctx.measureText(text).width;
+};
+
+// Helper: Wrap text into lines of segments
+const wrapTextStats = (
+  ctx: CanvasRenderingContext2D,
+  segments: TextSegment[],
+  maxWidth: number,
+  defaultFontSize: number
+) => {
+  const lines: TextSegment[][] = [];
+  let currentLine: TextSegment[] = [];
+  let currentLineWidth = 0;
+
+  for (const seg of segments) {
+    const fontSize = seg.fontSize || defaultFontSize;
+    const words = seg.text.split(" ");
+
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      // Re-add space if not last word, or if original seg ended with space (simplification: assume space between words)
+      const wordWithSpace = word + (i < words.length - 1 ? " " : "");
+
+      const wordW = measureSegment(ctx, wordWithSpace, fontSize);
+
+      if (currentLineWidth + wordW > maxWidth && currentLine.length > 0) {
+        // If it's just a space causing overflow, ignore? No, standard wrapping.
+        lines.push(currentLine);
+        currentLine = [{ ...seg, text: wordWithSpace }];
+        currentLineWidth = wordW;
+      } else {
+        currentLine.push({ ...seg, text: wordWithSpace });
+        currentLineWidth += wordW;
+      }
+    }
+  }
+  if (currentLine.length > 0) lines.push(currentLine);
+  return lines;
+};
 
 export function RealtimePreview({
   mainTitle,
@@ -242,18 +307,25 @@ export function RealtimePreview({
       // If asset not loaded yet (e.g. url just typed, invalid, or loading), skip this clip
       if (!asset) continue;
 
+      const trimStart = vid.trimStart || 0;
+      const trimEnd =
+        vid.trimEnd && vid.trimEnd > 0 ? vid.trimEnd : asset.duration;
+      const clipDuration = Math.max(0, trimEnd - trimStart);
+
+      if (clipDuration <= 0) continue;
+
       clips.push({
         id: vid.id,
         url: asset.url,
         originalUrl: vid.url,
-        duration: asset.duration,
+        duration: clipDuration,
         startTime: currentOffset,
-        endTime: currentOffset + asset.duration,
-        sourceStart: 0,
+        endTime: currentOffset + clipDuration,
+        sourceStart: trimStart,
         volume: 1,
         audioBuffer: asset.audioBuffer,
       });
-      currentOffset += asset.duration;
+      currentOffset += clipDuration;
     }
 
     const totalDuration = currentOffset;
@@ -392,152 +464,96 @@ export function RealtimePreview({
 
   // ... Render Loop and Audio Control ...
 
-  // Helper: Normalize colors to match FFmpeg backend
-  const normalizeColor = (color: string | undefined): string => {
-    if (!color) return "white";
-    const map: Record<string, string> = {
-      "#FFD700": "#FFC700",
-      "#FF6B6B": "#E63946",
-      "#4ECDC4": "#06AED5",
-      "#95E1D3": "#2D9E6D",
-    };
-    return map[color] || color;
-  };
+  const drawOverlay = useCallback(
+    (ctx: CanvasRenderingContext2D, overlay: TextOverlay) => {
+      ctx.save();
+      const fontBase = "Impact, Arial, sans-serif";
+      const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
 
-  // Helper: Measure text segment width
-  const measureSegment = (
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    fontSize: number
-  ) => {
-    ctx.font = `${fontSize}px Impact, Arial, sans-serif`;
-    return ctx.measureText(text).width;
-  };
+      if (overlay.type === "main-title") {
+        // Main Title: Centered, Wrapped, Box, No Stroke
+        const fontSize = 52;
+        const maxWidth = 850;
+        const lineHeight = fontSize + 10;
+        const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
 
-  // Helper: Wrap text into lines of segments
-  const wrapTextStats = (
-    ctx: CanvasRenderingContext2D,
-    segments: TextSegment[],
-    maxWidth: number,
-    defaultFontSize: number
-  ) => {
-    const lines: TextSegment[][] = [];
-    let currentLine: TextSegment[] = [];
-    let currentLineWidth = 0;
-
-    for (const seg of segments) {
-      const fontSize = seg.fontSize || defaultFontSize;
-      const words = seg.text.split(" ");
-
-      for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        // Re-add space if not last word, or if original seg ended with space (simplification: assume space between words)
-        const wordWithSpace = word + (i < words.length - 1 ? " " : "");
-
-        const wordW = measureSegment(ctx, wordWithSpace, fontSize);
-
-        if (currentLineWidth + wordW > maxWidth && currentLine.length > 0) {
-          // If it's just a space causing overflow, ignore? No, standard wrapping.
-          lines.push(currentLine);
-          currentLine = [{ ...seg, text: wordWithSpace }];
-          currentLineWidth = wordW;
-        } else {
-          currentLine.push({ ...seg, text: wordWithSpace });
-          currentLineWidth += wordW;
+        // Center vertically around Y=90
+        let startY = 90;
+        if (lines.length > 1) {
+          startY -= ((lines.length - 1) * lineHeight) / 2;
         }
-      }
-    }
-    if (currentLine.length > 0) lines.push(currentLine);
-    return lines;
-  };
 
-  const drawOverlay = (ctx: CanvasRenderingContext2D, overlay: TextOverlay) => {
-    ctx.save();
-    const fontBase = "Impact, Arial, sans-serif";
-    const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
+        lines.forEach((line, lineIdx) => {
+          let lineWidth = 0;
+          line.forEach(
+            (s) =>
+              (lineWidth += measureSegment(ctx, s.text, s.fontSize || fontSize))
+          );
+          let currentX = (width - lineWidth) / 2;
+          const currentY = startY + lineIdx * lineHeight;
 
-    if (overlay.type === "main-title") {
-      // Main Title: Centered, Wrapped, Box, No Stroke
-      const fontSize = 52;
-      const maxWidth = 850;
-      const lineHeight = fontSize + 10;
-      const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
+          // Draw Box (One box per line) - FFmpeg style box padding ~12
+          // Currently using simplistic box per line
+          ctx.fillStyle = "rgba(0,0,0,0.6)";
+          ctx.fillRect(currentX - 12, currentY - 52, lineWidth + 24, 52 + 24);
 
-      // Center vertically around Y=90
-      let startY = 90;
-      if (lines.length > 1) {
-        startY -= ((lines.length - 1) * lineHeight) / 2;
-      }
-
-      lines.forEach((line, lineIdx) => {
-        let lineWidth = 0;
-        line.forEach(
-          (s) =>
-            (lineWidth += measureSegment(ctx, s.text, s.fontSize || fontSize))
-        );
-        let currentX = (width - lineWidth) / 2;
-        const currentY = startY + lineIdx * lineHeight;
-
-        // Draw Box (One box per line) - FFmpeg style box padding ~12
-        // Currently using simplistic box per line
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(currentX - 12, currentY - 52, lineWidth + 24, 52 + 24);
-
-        line.forEach((seg) => {
-          ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
-          ctx.fillStyle = getSegColor(seg);
-          ctx.fillText(seg.text, currentX, currentY);
-          currentX += ctx.measureText(seg.text).width;
+          line.forEach((seg) => {
+            ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+            ctx.fillStyle = getSegColor(seg);
+            ctx.fillText(seg.text, currentX, currentY);
+            currentX += ctx.measureText(seg.text).width;
+          });
         });
-      });
-    } else if (overlay.type === "ranking-title") {
-      // Video Title: Left Aligned, Wrapped, Stroke 3px, No Shadow
-      const fontSize = 48;
-      const maxWidth = 700;
-      const lineHeight = fontSize + 8;
-      const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
+      } else if (overlay.type === "ranking-title") {
+        // Video Title: Left Aligned, Wrapped, Stroke 3px, No Shadow
+        const fontSize = 48;
+        const maxWidth = 700;
+        const lineHeight = fontSize + 8;
+        const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
 
-      let currentY = overlay.y;
+        let currentY = overlay.y;
 
-      lines.forEach((line) => {
-        let currentX = typeof overlay.x === "number" ? overlay.x : 90;
-        line.forEach((seg) => {
+        lines.forEach((line) => {
+          let currentX = typeof overlay.x === "number" ? overlay.x : 90;
+          line.forEach((seg) => {
+            ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+            ctx.fillStyle = getSegColor(seg);
+
+            // Stroke
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 3;
+            ctx.lineJoin = "round";
+            ctx.strokeText(seg.text, currentX, currentY);
+            // Fill
+            ctx.fillText(seg.text, currentX, currentY);
+            currentX += ctx.measureText(seg.text).width;
+          });
+          currentY += lineHeight;
+        });
+      } else if (overlay.type === "ranking-number") {
+        // Rank Number: Simple, 52px, Stroke 3px
+        const fontSize = 52;
+        let currentX = 30;
+        const currentY = overlay.y;
+
+        overlay.text.forEach((seg) => {
           ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
           ctx.fillStyle = getSegColor(seg);
 
-          // Stroke
           ctx.strokeStyle = "black";
           ctx.lineWidth = 3;
           ctx.lineJoin = "round";
           ctx.strokeText(seg.text, currentX, currentY);
-          // Fill
+
           ctx.fillText(seg.text, currentX, currentY);
           currentX += ctx.measureText(seg.text).width;
         });
-        currentY += lineHeight;
-      });
-    } else if (overlay.type === "ranking-number") {
-      // Rank Number: Simple, 52px, Stroke 3px
-      const fontSize = 52;
-      let currentX = 30;
-      const currentY = overlay.y;
+      }
 
-      overlay.text.forEach((seg) => {
-        ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
-        ctx.fillStyle = getSegColor(seg);
-
-        ctx.strokeStyle = "black";
-        ctx.lineWidth = 3;
-        ctx.lineJoin = "round";
-        ctx.strokeText(seg.text, currentX, currentY);
-
-        ctx.fillText(seg.text, currentX, currentY);
-        currentX += ctx.measureText(seg.text).width;
-      });
-    }
-
-    ctx.restore();
-  };
+      ctx.restore();
+    },
+    [width]
+  );
 
   // Rendering Loop
   const render = useCallback(() => {
@@ -614,7 +630,7 @@ export function RealtimePreview({
     audioSourcesRef.current.forEach((source) => {
       try {
         source.stop();
-      } catch (e) {}
+      } catch {}
     });
     audioSourcesRef.current.clear();
   };
@@ -679,10 +695,16 @@ export function RealtimePreview({
       const clipEndTimeline = clip.endTime;
 
       if (clipStartTimeline >= currentTime) {
-        source.start(ctx.currentTime + (clipStartTimeline - currentTime));
+        source.start(
+          ctx.currentTime + (clipStartTimeline - currentTime),
+          clip.sourceStart,
+          clip.duration
+        );
       } else if (clipEndTimeline > currentTime) {
         const offset = currentTime - clipStartTimeline;
-        source.start(ctx.currentTime, offset);
+        const bufferOffset = clip.sourceStart + offset;
+        const durationRemaining = clip.duration - offset;
+        source.start(ctx.currentTime, bufferOffset, durationRemaining);
       }
 
       audioSourcesRef.current.set(clip.id, source);

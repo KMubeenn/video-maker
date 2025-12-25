@@ -105,14 +105,17 @@ export async function preparePreview(req: Request, res: Response) {
 
 export interface VideoRankInput {
   url: string;
-  title: TextSegment[]; // Changed to TextSegment[]
+  title: TextSegment[];
+  trimStart?: number;
+  trimEnd?: number;
 }
 
 export interface CreateRankingRequest {
-  mainTitle: TextSegment[]; // Changed to TextSegment[]
+  mainTitle: TextSegment[];
   videos: VideoRankInput[];
   width?: number;
   height?: number;
+  firstToPlay?: number;
 }
 
 export async function createRanking(req: Request, res: Response) {
@@ -204,6 +207,8 @@ export async function createRanking(req: Request, res: Response) {
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
         rank: originalIndex + 1,
+        trimStart: videos[originalIndex]?.trimStart,
+        trimEnd: videos[originalIndex]?.trimEnd,
       };
     });
 
@@ -372,6 +377,8 @@ export async function generateFullPreview(req: Request, res: Response) {
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
         rank: originalIndex + 1,
+        trimStart: videos[originalIndex]?.trimStart,
+        trimEnd: videos[originalIndex]?.trimEnd,
       };
     });
 
