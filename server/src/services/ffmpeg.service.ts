@@ -1,6 +1,8 @@
 import ffmpeg from "fluent-ffmpeg";
 import path from "path";
 import fs from "fs";
+import https from "https";
+import http from "http";
 
 // Text segment for rich text formatting
 export interface TextSegment {
@@ -399,6 +401,77 @@ export async function createRankingVideo(
 
       console.log(`Processing video ${video.rank}...`);
 
+      // Pre-process meme sounds: Download remote URLs to local temp files
+      const processedMemeSounds: typeof video.memeSounds = [];
+      for (const sound of video.memeSounds || []) {
+        if (sound.file.startsWith("http")) {
+          try {
+            const urlObj = new URL(sound.file);
+            const ext = path.extname(urlObj.pathname) || ".mp3";
+            const soundFileName = `sound-${Date.now()}-${Math.random()
+              .toString(36)
+              .substring(7)}${ext}`;
+            const localSoundPath = path.join(tempDir, soundFileName);
+
+            console.log(
+              `Downloading sound: ${sound.file} -> ${localSoundPath}`
+            );
+
+            await new Promise<void>((resolve, reject) => {
+              const protocol = sound.file.startsWith("https") ? https : http;
+              const file = fs.createWriteStream(localSoundPath);
+              protocol
+                .get(sound.file, (response) => {
+                  if (
+                    response.statusCode === 301 ||
+                    response.statusCode === 302
+                  ) {
+                    // Handle redirect
+                    const redirectUrl = response.headers.location;
+                    if (redirectUrl) {
+                      const redirectProtocol = redirectUrl.startsWith("https")
+                        ? https
+                        : http;
+                      redirectProtocol
+                        .get(redirectUrl, (res2) => {
+                          res2.pipe(file);
+                          file.on("finish", () => {
+                            file.close();
+                            resolve();
+                          });
+                        })
+                        .on("error", reject);
+                    } else {
+                      reject(new Error("Redirect without location"));
+                    }
+                  } else {
+                    response.pipe(file);
+                    file.on("finish", () => {
+                      file.close();
+                      resolve();
+                    });
+                  }
+                })
+                .on("error", (err) => {
+                  fs.unlink(localSoundPath, () => {});
+                  reject(err);
+                });
+            });
+
+            processedMemeSounds.push({
+              ...sound,
+              file: localSoundPath,
+            });
+          } catch (err) {
+            console.error(`Failed to download sound ${sound.file}:`, err);
+            // Skip this sound if download fails
+          }
+        } else {
+          // Local file path
+          processedMemeSounds.push(sound);
+        }
+      }
+
       await new Promise<void>((resolve, reject) => {
         const command = ffmpeg(inputPath);
 
@@ -519,7 +592,7 @@ export async function createRankingVideo(
 
           // Helper to add audio inputs
           let inputCount = 1; // 0 is main video
-          const memeSounds = video.memeSounds || [];
+          const memeSounds = processedMemeSounds;
 
           if (memeSounds.length > 0) {
             memeSounds.forEach((sound) => {

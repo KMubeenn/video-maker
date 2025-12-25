@@ -201,11 +201,20 @@ export function RealtimePreview({
         await Promise.all(
           missingSounds.map(async (url) => {
             try {
-              const arrayBuffer = await fetch(url).then((res) =>
-                res.arrayBuffer()
-              );
+              console.log(`[RealtimePreview] Loading sound: ${url}`);
+              const response = await fetch(url, {
+                mode: "cors",
+                credentials: "omit",
+              });
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+              }
+              const arrayBuffer = await response.arrayBuffer();
               const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
               loadedSoundsRef.current.set(url, audioBuffer);
+              console.log(
+                `[RealtimePreview] Sound loaded successfully: ${url}`
+              );
             } catch (e) {
               console.warn(`Failed to load sound ${url}`, e);
             }
@@ -677,9 +686,22 @@ export function RealtimePreview({
   const playAudio = () => {
     if (!audioContextRef.current || !timeline) return;
     const ctx = audioContextRef.current;
+
+    // Don't try to use a closed context
+    if (ctx.state === "closed") {
+      console.warn(
+        "[RealtimePreview] AudioContext is closed, cannot play audio"
+      );
+      return;
+    }
+
     if (ctx.state === "suspended") ctx.resume();
 
     stopAudio();
+
+    console.log(
+      `[RealtimePreview] Playing audio for ${timeline.clips.length} clips`
+    );
 
     timeline.clips.forEach((clip) => {
       // 1. Play Video Audio (if buffer exists)
@@ -769,7 +791,10 @@ export function RealtimePreview({
       setIsPlaying(false);
       stopAudio();
       videoElementsRef.current.forEach((v) => v.pause());
-      if (audioContextRef.current) {
+      if (
+        audioContextRef.current &&
+        audioContextRef.current.state !== "closed"
+      ) {
         audioContextRef.current.suspend();
       }
     } else {
