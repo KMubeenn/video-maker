@@ -29,11 +29,18 @@
   border-radius: 16px;
   width: 95%;
   max-width: 700px;
+  max-height: 95vh;
+  overflow-y: auto;
   border: 1px solid #2a2a2a;
-  overflow: hidden;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6),
     0 0 0 1px rgba(255, 255, 255, 0.05);
   animation: slideUp 0.3s ease;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.video-editor-modal::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 @keyframes slideUp {
@@ -648,4 +655,144 @@
   background: rgba(0, 0, 0, 0.3);
   padding: 0.3rem 0.6rem;
   border-radius: 4px;
+}
+
+/* Sounds Panel */
+.sounds-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #141414;
+}
+
+.sounds-library {
+  padding: 1rem;
+  border-bottom: 1px solid #2a2a2a;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.sounds-library::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+.sounds-library h4 {
+  margin: 0 0 0.75rem 0;
+  color: #ccc;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sounds-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.sound-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.8rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #333;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sound-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #666;
+  transform: translateY(-1px);
+}
+
+.sound-icon {
+  font-size: 1rem;
+}
+
+.sound-name {
+  font-size: 0.85rem;
+  color: #eee;
+  font-weight: 500;
+}
+
+/* Sounds Timeline Area */
+.sounds-timeline-container {
+  padding: 1rem 1.5rem 1.5rem;
+}
+
+.sound-timeline {
+  margin-top: 0.5rem;
+}
+
+/* Placed Sound on Timeline */
+.placed-sound {
+  position: absolute;
+  top: 10px; /* Below the track line */
+  transform: translateX(-50%); /* Centered on start time */
+  background: #e91e63; /* Distinct color for sounds */
+  padding: 4px 8px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+  cursor: grab;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: white;
+  min-width: 60px;
+  justify-content: space-between;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.placed-sound:active {
+  cursor: grabbing;
+  transform: translateX(-50%) scale(1.05);
+}
+
+/* Different color for placed sound to distinct from trim handles */
+.placed-sound .sound-label {
+  font-weight: 600;
+  pointer-events: none;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sound-remove-btn {
+  background: rgba(0, 0, 0, 0.2);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.sound-remove-btn:hover {
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+}
+
+.sound-time {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: "SF Mono", "Consolas", monospace;
+  pointer-events: none;
 }

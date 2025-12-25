@@ -52,6 +52,11 @@ export interface RankingVideoInput {
   cropY?: number;
   cropWidth?: number;
   cropHeight?: number;
+  memeSounds?: {
+    file: string; // Absolute path or filename
+    startTime: number; // Start time in seconds (relative to trim start)
+    volume: number; // Volume multiplier
+  }[];
 }
 
 export const createRankingVideo = async (
