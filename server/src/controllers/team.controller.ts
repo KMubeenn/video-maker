@@ -10,6 +10,7 @@ import {
   updateTeamMemberRole,
   deleteTeam,
 } from "../services/team.service.js";
+import { getUserByEmail } from "../services/user.service.js";
 
 export async function createTeamController(
   req: AuthenticatedRequest,
@@ -179,6 +180,38 @@ export async function deleteTeamController(
     res.json({ success: true });
   } catch (error) {
     console.error("Delete team error:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Internal server error",
+    });
+  }
+}
+
+export async function searchUserByEmail(
+  req: AuthenticatedRequest,
+  res: Response
+) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { email } = req.query;
+
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ error: "Email query parameter is required" });
+    }
+
+    const user = await getUserByEmail(email);
+
+    if (!user) {
+      return res.status(404).json({ 
+        error: "User not found with that email address. The user must be registered in the system first." 
+      });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error("Search user error:", error);
     res.status(500).json({
       error: error instanceof Error ? error.message : "Internal server error",
     });

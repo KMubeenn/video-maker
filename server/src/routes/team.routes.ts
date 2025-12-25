@@ -8,6 +8,7 @@ import {
   removeMember,
   updateMemberRole,
   deleteTeamController,
+  searchUserByEmail,
 } from "../controllers/team.controller.js";
 import { authenticateUser } from "../middleware/auth.middleware.js";
 
@@ -18,6 +19,7 @@ router.use(authenticateUser);
 
 router.post("/", createTeamController);
 router.get("/", listTeams);
+router.get("/search-user", searchUserByEmail);
 router.get("/:id", getTeam);
 router.get("/:id/members", listTeamMembers);
 router.post("/:id/members", addMember);

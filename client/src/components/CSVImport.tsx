@@ -1,4 +1,18 @@
 import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Upload } from "lucide-react";
 
 interface CSVImportProps {
   onImport: (csvData: string) => Promise<void>;
@@ -44,70 +58,63 @@ export function CSVImport({ onImport, onCancel }: CSVImportProps) {
   };
 
   return (
-    <div style={{ maxWidth: "600px", margin: "0 auto" }}>
-      <h2>Import Videos from CSV</h2>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: "15px" }}>
-          <label style={{ display: "block", marginBottom: "5px" }}>
-            Upload CSV File
-          </label>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={handleFileChange}
-            style={{ width: "100%", padding: "8px", boxSizing: "border-box" }}
-          />
-        </div>
+    <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Import Videos from CSV</DialogTitle>
+          <DialogDescription>
+            Upload a CSV file or paste CSV data to import multiple videos at once.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        <div style={{ marginBottom: "15px" }}>
-          <label style={{ display: "block", marginBottom: "5px" }}>
-            Or paste CSV data
-          </label>
-          <textarea
-            value={csvData}
-            onChange={(e) => setCsvData(e.target.value)}
-            rows={10}
-            placeholder="Clip URL,Tags,First,Trim,Title,Source Platform,Date Added,Notes"
-            style={{ width: "100%", padding: "8px", boxSizing: "border-box", fontFamily: "monospace" }}
-          />
-        </div>
+          <div className="space-y-2">
+            <Label htmlFor="csv-file">Upload CSV File</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="csv-file"
+                type="file"
+                accept=".csv"
+                onChange={handleFileChange}
+                disabled={loading}
+                className="cursor-pointer"
+              />
+              {file && (
+                <span className="text-sm text-muted-foreground">{file.name}</span>
+              )}
+            </div>
+          </div>
 
-        {error && (
-          <div style={{ color: "red", marginBottom: "15px" }}>{error}</div>
-        )}
+          <div className="space-y-2">
+            <Label htmlFor="csv-data">Or paste CSV data</Label>
+            <Textarea
+              id="csv-data"
+              value={csvData}
+              onChange={(e) => setCsvData(e.target.value)}
+              rows={10}
+              placeholder="Clip URL,Tags,First,Trim,Title,Source Platform,Date Added,Notes"
+              className="font-mono text-sm"
+              disabled={loading}
+            />
+          </div>
 
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            type="submit"
-            disabled={loading || !csvData.trim()}
-            style={{
-              padding: "10px 20px",
-              backgroundColor: "#007bff",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: loading ? "not-allowed" : "pointer",
-            }}
-          >
-            {loading ? "Importing..." : "Import"}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              padding: "10px 20px",
-              backgroundColor: "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading || !csvData.trim()}>
+              <Upload className="mr-2 h-4 w-4" />
+              {loading ? "Importing..." : "Import"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

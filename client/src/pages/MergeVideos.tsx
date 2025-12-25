@@ -1,5 +1,13 @@
 import { useState } from "react";
 import { mergeVideos } from "../api/video.api";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Download, Sparkles, Music, Image, Play } from "lucide-react";
+import { cn } from "@/lib/utils";
 import "./MergeVideos.css";
 
 interface MergeResult {
@@ -76,11 +84,12 @@ export default function MergeVideos() {
   };
 
   const getPlatformIcon = (url: string) => {
-    if (url.includes("tiktok")) return "🎵";
-    if (url.includes("instagram")) return "📸";
-    if (url.includes("youtube") || url.includes("youtu.be")) return "▶️";
-    return "🎬";
+    if (url.includes("tiktok")) return <Music className="h-5 w-5" />;
+    if (url.includes("instagram")) return <Image className="h-5 w-5" />;
+    if (url.includes("youtube") || url.includes("youtu.be")) return <Play className="h-5 w-5" />;
+    return null;
   };
+
 
   return (
     <div className="merge-container">
@@ -97,31 +106,37 @@ export default function MergeVideos() {
 
         {/* Video Count Selector */}
         <div className="count-selector">
-          <label className="section-label">How many videos?</label>
+          <Label className="section-label">How many videos?</Label>
           <div className="count-buttons">
             {([2, 3, 4] as const).map((count) => (
-              <button
+              <Button
                 key={count}
-                className={`count-btn ${videoCount === count ? "active" : ""}`}
+                variant={videoCount === count ? "default" : "outline"}
+                className={cn(
+                  "count-btn flex flex-col h-auto py-6",
+                  videoCount === count && "active"
+                )}
                 onClick={() => handleVideoCountChange(count)}
                 disabled={loading}
               >
-                <span className="count-number">{count}</span>
-                <span className="count-label">Videos</span>
-              </button>
+                <span className="count-number text-2xl font-bold">{count}</span>
+                <span className="count-label text-sm">Videos</span>
+              </Button>
             ))}
           </div>
         </div>
 
         {/* URL Inputs */}
         <div className="url-inputs">
-          <label className="section-label">Paste your video URLs</label>
+          <Label className="section-label">Paste your video URLs</Label>
           {urls.map((url, index) => (
             <div key={index} className="input-wrapper">
-              <div className="input-icon">
-                {getPlatformIcon(url) || `${index + 1}`}
+              <div className="input-icon flex items-center justify-center">
+                {getPlatformIcon(url) || (
+                  <span className="font-bold">{index + 1}</span>
+                )}
               </div>
-              <input
+              <Input
                 type="url"
                 className="url-input"
                 placeholder={`Video ${
@@ -137,77 +152,103 @@ export default function MergeVideos() {
 
         {/* Error Message */}
         {error && (
-          <div className="error-message">
-            <span className="error-icon">⚠️</span>
-            {error}
-          </div>
+          <Alert variant="destructive" className="error-message">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Submit Button */}
-        <button
-          className="merge-button"
+        <Button
+          className="merge-button w-full"
           onClick={handleSubmit}
           disabled={loading}
+          size="lg"
         >
           {loading ? (
             <>
-              <span className="spinner"></span>
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               Processing...
             </>
           ) : (
             <>
-              <span className="merge-icon">✨</span>
+              <Sparkles className="mr-2 h-5 w-5" />
               Merge Videos
             </>
           )}
-        </button>
+        </Button>
 
         {/* Result */}
         {result && (
-          <div className="result-container">
-            <div className="result-header">
-              <h2 className="result-title">🎉 Your video is ready!</h2>
-              <p className="result-subtitle">{result.message}</p>
-            </div>
-
-            <div className="video-preview">
-              <video src={result.videoUrl} controls className="output-video" />
-            </div>
-
-            <div className="source-info">
-              <h3 className="sources-title">Sources:</h3>
-              <div className="sources-list">
-                {result.sources?.map((source, idx: number) => (
-                  <div key={idx} className="source-item">
-                    <span className="source-platform">{source.platform}</span>
-                    <span className="source-url">
-                      {source.url.substring(0, 40)}...
-                    </span>
-                  </div>
-                ))}
+          <Card className="result-container">
+            <CardHeader className="result-header">
+              <CardTitle className="result-title text-2xl">
+                🎉 Your video is ready!
+              </CardTitle>
+              <CardDescription className="result-subtitle">
+                {result.message}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="video-preview rounded-lg overflow-hidden">
+                <video
+                  src={result.videoUrl}
+                  controls
+                  className="output-video w-full"
+                />
               </div>
-            </div>
 
-            <a
-              href={result.videoUrl}
-              download="merged-video.mp4"
-              className="download-button"
-            >
-              <span className="download-icon">⬇️</span>
-              Download Video
-            </a>
-          </div>
+              <Card className="source-info">
+                <CardHeader>
+                  <CardTitle className="sources-title text-base">
+                    Sources:
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="sources-list space-y-2">
+                    {result.sources?.map((source, idx: number) => (
+                      <div
+                        key={idx}
+                        className="source-item flex items-center gap-4 p-3 bg-muted rounded-lg"
+                      >
+                        <Badge variant="default" className="source-platform">
+                          {source.platform}
+                        </Badge>
+                        <span className="source-url text-sm text-muted-foreground font-mono">
+                          {source.url.substring(0, 40)}...
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Button
+                asChild
+                className="download-button w-full"
+                size="lg"
+              >
+                <a href={result.videoUrl} download="merged-video.mp4">
+                  <Download className="mr-2 h-5 w-5" />
+                  Download Video
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
         )}
 
         {/* Instructions */}
-        <div className="instructions">
-          <h3 className="instructions-title">How to use:</h3>
-          <ol className="instructions-list">
-            <li>Select how many videos you want to merge (2-4)</li>
-            <li>Paste the URLs of your TikTok, Instagram, or YouTube shorts</li>
-            <li>Click "Merge Videos" and wait for the magic to happen!</li>
-          </ol>
-        </div>
+        <Card className="instructions">
+          <CardHeader>
+            <CardTitle className="instructions-title">How to use:</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="instructions-list list-decimal list-inside space-y-2">
+              <li>Select how many videos you want to merge (2-4)</li>
+              <li>Paste the URLs of your TikTok, Instagram, or YouTube shorts</li>
+              <li>Click "Merge Videos" and wait for the magic to happen!</li>
+            </ol>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
