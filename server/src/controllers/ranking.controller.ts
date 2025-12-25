@@ -113,6 +113,12 @@ export interface VideoRankInput {
   cropY?: number;
   cropWidth?: number;
   cropHeight?: number;
+  // Meme sounds to mix into the audio
+  memeSounds?: {
+    file: string; // URL like http://localhost:4000/assets/sounds/file.mp3
+    startTime: number;
+    volume: number;
+  }[];
 }
 
 export interface CreateRankingRequest {
@@ -220,6 +226,18 @@ export async function createRanking(req: Request, res: Response) {
         cropY: originalVideo?.cropY,
         cropWidth: originalVideo?.cropWidth,
         cropHeight: originalVideo?.cropHeight,
+        // Convert meme sound URLs to absolute file paths
+        memeSounds: originalVideo?.memeSounds?.map((s) => ({
+          // Convert URL like http://localhost:4000/assets/sounds/file.mp3 to absolute path
+          file: path.resolve(
+            process.cwd(),
+            "assets",
+            "sounds",
+            s.file.split("/").pop() || ""
+          ),
+          startTime: s.startTime,
+          volume: s.volume,
+        })),
       };
     });
 
@@ -396,6 +414,18 @@ export async function generateFullPreview(req: Request, res: Response) {
         cropY: originalVideo?.cropY,
         cropWidth: originalVideo?.cropWidth,
         cropHeight: originalVideo?.cropHeight,
+        // Convert meme sound URLs to absolute file paths
+        memeSounds: originalVideo?.memeSounds?.map((s) => ({
+          // Convert URL like http://localhost:4000/assets/sounds/file.mp3 to absolute path
+          file: path.resolve(
+            process.cwd(),
+            "assets",
+            "sounds",
+            s.file.split("/").pop() || ""
+          ),
+          startTime: s.startTime,
+          volume: s.volume,
+        })),
       };
     });
 

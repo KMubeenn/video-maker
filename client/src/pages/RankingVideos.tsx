@@ -9,6 +9,7 @@ import {
 import { RichTextInput } from "../components/RichTextInput";
 import { RealtimePreview } from "../components/RealtimePreview";
 import { VideoEditor } from "../components/VideoEditor";
+import { type VideoMemeSound } from "../types/timeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,9 +50,13 @@ import { teamApi } from "../api/team.api";
 import { useAuth } from "../hooks/useAuth";
 import "./RankingVideos.css";
 
-interface VideoInput extends Omit<RankingVideoInput, "title"> {
+interface VideoInput extends Omit<RankingVideoInput, "title" | "memeSounds"> {
   id: number;
-  title: TextSegment[]; // Using TextSegment[] for formatted titles
+  title: TextSegment[]; // Using TextSegment[] for format
+  // We use this to track the original full resource URL from backend if needed,
+  // but for now 'url' is the main one.
+  // 'url' in RankingVideoInput is the served URL.
+  memeSounds?: VideoMemeSound[];
 }
 
 // Single Preview State
@@ -212,9 +217,24 @@ export default function RankingVideos() {
   ]);
   const [videoCount, setVideoCount] = useState<3 | 4 | 5 | 6>(3);
   const [videos, setVideos] = useState<VideoInput[]>([
-    { id: 1, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
-    { id: 2, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
-    { id: 3, url: "", title: [{ text: "", color: "white", fontSize: 48 }] },
+    {
+      id: 1,
+      url: "",
+      title: [{ text: "", color: "white", fontSize: 48 }],
+      memeSounds: [],
+    },
+    {
+      id: 2,
+      url: "",
+      title: [{ text: "", color: "white", fontSize: 48 }],
+      memeSounds: [],
+    },
+    {
+      id: 3,
+      url: "",
+      title: [{ text: "", color: "white", fontSize: 48 }],
+      memeSounds: [],
+    },
   ]);
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1920);
@@ -248,6 +268,7 @@ export default function RankingVideos() {
           id: i + 1,
           url: "",
           title: [{ text: "", color: "white", fontSize: 48 }],
+          memeSounds: [],
         }
       );
     }
@@ -344,7 +365,8 @@ export default function RankingVideos() {
     cropX?: number,
     cropY?: number,
     cropWidth?: number,
-    cropHeight?: number
+    cropHeight?: number,
+    memeSounds?: VideoMemeSound[]
   ) => {
     if (editingVideoIndex === null) return;
 
@@ -358,6 +380,7 @@ export default function RankingVideos() {
       cropY,
       cropWidth,
       cropHeight,
+      memeSounds: memeSounds || newVideos[editingVideoIndex].memeSounds || [],
     };
     setVideos(newVideos);
     // Clear preview because trimming/cropping changed
@@ -447,6 +470,11 @@ export default function RankingVideos() {
           cropY: v.cropY,
           cropWidth: v.cropWidth,
           cropHeight: v.cropHeight,
+          memeSounds: v.memeSounds?.map((s) => ({
+            file: s.file,
+            startTime: s.startTime,
+            volume: s.volume,
+          })),
         })),
         width,
         height,
@@ -586,6 +614,7 @@ export default function RankingVideos() {
             id: i + 1,
             url: "",
             title: [{ text: "", color: "white", fontSize: 48 }],
+            memeSounds: [],
           }
         );
       }
@@ -964,6 +993,7 @@ export default function RankingVideos() {
           initialCropY={videos[editingVideoIndex].cropY}
           initialCropWidth={videos[editingVideoIndex].cropWidth}
           initialCropHeight={videos[editingVideoIndex].cropHeight}
+          initialMemeSounds={videos[editingVideoIndex].memeSounds}
         />
       )}
 

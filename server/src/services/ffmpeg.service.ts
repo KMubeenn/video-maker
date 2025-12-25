@@ -333,6 +333,13 @@ export interface RankingVideoInput {
   cropY?: number | undefined;
   cropWidth?: number | undefined;
   cropHeight?: number | undefined;
+  memeSounds?:
+    | {
+        file: string; // Absolute path to sound file
+        startTime: number; // Start time in seconds (relative to trimmed clip start)
+        volume: number; // Volume multiplier (1.0 = 100%)
+      }[]
+    | undefined;
 }
 
 export interface RankingVideoOptions {
@@ -370,17 +377,17 @@ export async function createRankingVideo(
     const totalVideos = options.videos.length;
 
     // Layout constants
-    const titleHeight = 200; // Height reserved for title at top
-    const videoHeight = height - titleHeight; // Video goes below title
-    const rankingItemHeight = 200; // Fixed spacing between ranking items
+    const titleHeight = 200;
+    const videoHeight = height - titleHeight;
+    const rankingItemHeight = 200;
 
     // Calculate starting Y position to center rankings vertically
     const totalRankingHeight = totalVideos * rankingItemHeight;
     const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
 
     // Font paths
-    const titleFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for main title
-    const rankingFont = "C\\:/Windows/Fonts/impact.ttf"; // Impact for rankings
+    const titleFont = "C\\:/Windows/Fonts/impact.ttf";
+    const rankingFont = "C\\:/Windows/Fonts/impact.ttf";
 
     for (const video of options.videos) {
       const inputPath = path.resolve(video.filePath).replace(/\\/g, "/");
@@ -389,110 +396,6 @@ export async function createRankingVideo(
         `processed-${video.rank}.mp4`
       );
       const outputPath = outputPathNative.replace(/\\/g, "/");
-
-      // Build filters
-      const filters: string[] = [];
-
-      // 0. Trimming
-      const trimStart =
-        video.trimStart !== undefined ? Number(video.trimStart) : undefined;
-      const trimEnd =
-        video.trimEnd !== undefined ? Number(video.trimEnd) : undefined;
-
-      console.log(
-        `Video ${video.rank} trim config: start=${trimStart}, end=${trimEnd}`
-      );
-
-      if (
-        trimStart !== undefined &&
-        !isNaN(trimStart) &&
-        trimEnd !== undefined &&
-        !isNaN(trimEnd) &&
-        trimEnd > trimStart
-      ) {
-        console.log(`Applying trim filter: start=${trimStart} end=${trimEnd}`);
-        filters.push(
-          `trim=start=${trimStart}:end=${trimEnd},setpts=PTS-STARTPTS`
-        );
-      } else if (trimStart !== undefined && !isNaN(trimStart)) {
-        filters.push(`trim=start=${trimStart},setpts=PTS-STARTPTS`);
-      }
-
-      // 0.5 User Crop (applied after trim, before layout scaling)
-      // This crops the source video to user-specified region before scaling to canvas
-      const hasCrop =
-        video.cropWidth &&
-        video.cropHeight &&
-        video.cropWidth > 0 &&
-        video.cropHeight > 0;
-      if (hasCrop) {
-        const cx = video.cropX ?? 0;
-        const cy = video.cropY ?? 0;
-        console.log(
-          `Applying user crop filter: ${video.cropWidth}x${video.cropHeight} at (${cx},${cy})`
-        );
-        filters.push(`crop=${video.cropWidth}:${video.cropHeight}:${cx}:${cy}`);
-      }
-
-      // 1. Scale video to fill full width (may crop top/bottom)
-      // After user crop, the source dimensions are cropWidth x cropHeight
-      filters.push(
-        `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
-      );
-
-      // 2. Crop to exact size if video is larger after scaling
-      filters.push(
-        `crop=${width}:${videoHeight}:(iw-${width})/2:(ih-${videoHeight})/2`
-      );
-
-      // 3. Pad to full canvas - video positioned below title area
-      filters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
-
-      // 4. Add main title using formatted text
-      const mainTitleFilters = createFormattedTextFilters(
-        options.mainTitle,
-        "(w-text_w)/2",
-        90,
-        titleFont
-      );
-      filters.push(...mainTitleFilters);
-
-      // 5. Add all ranking numbers
-      const revealedRanks = new Set<number>();
-      for (let j = 0; j <= options.videos.indexOf(video); j++) {
-        const revealedVideo = options.videos[j];
-        if (revealedVideo) {
-          revealedRanks.add(revealedVideo.rank);
-        }
-      }
-
-      for (let i = 0; i < totalVideos; i++) {
-        const rankNum = i + 1;
-        const yPos = rankingStartY + i * rankingItemHeight;
-        const videoInfo = options.videos.find((v) => v.rank === rankNum);
-
-        const numColor = rankNum === video.rank ? "yellow" : "white";
-        const titleColor = rankNum === video.rank ? "yellow" : "white";
-
-        // Add rank number
-        filters.push(
-          `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
-        );
-
-        // Add title text
-        if (revealedRanks.has(rankNum) && videoInfo) {
-          const videoTitleFilters = createFormattedTextFilters(
-            videoInfo.title,
-            90,
-            yPos + 4,
-            rankingFont,
-            titleColor,
-            48,
-            true
-          );
-          filters.push(...videoTitleFilters);
-        }
-      }
 
       console.log(`Processing video ${video.rank}...`);
 
@@ -509,9 +412,127 @@ export async function createRankingVideo(
             (stream) => stream.codec_type === "audio"
           );
 
+          // Build filter graph
+          const videoFilters: string[] = [];
+          const complexFilters: string[] = [];
+
+          // 1. Video Processing Chain
+          // [0:v] -> TRIM -> CROP (User) -> SCALE -> CROP (Fill) -> PAD -> [v_base]
+
+          // Trimming
+          const trimStart =
+            video.trimStart !== undefined ? Number(video.trimStart) : undefined;
+          const trimEnd =
+            video.trimEnd !== undefined ? Number(video.trimEnd) : undefined;
+          const hasTrim =
+            (trimStart !== undefined && !isNaN(trimStart)) ||
+            (trimEnd !== undefined && !isNaN(trimEnd));
+
+          let trimFilter = "";
+          if (
+            trimStart !== undefined &&
+            !isNaN(trimStart) &&
+            trimEnd !== undefined &&
+            !isNaN(trimEnd) &&
+            trimEnd > trimStart
+          ) {
+            trimFilter = `trim=start=${trimStart}:end=${trimEnd},setpts=PTS-STARTPTS`;
+          } else if (trimStart !== undefined && !isNaN(trimStart)) {
+            trimFilter = `trim=start=${trimStart},setpts=PTS-STARTPTS`;
+          }
+
+          if (trimFilter) videoFilters.push(trimFilter);
+
+          // User Crop
+          if (
+            video.cropWidth &&
+            video.cropHeight &&
+            video.cropWidth > 0 &&
+            video.cropHeight > 0
+          ) {
+            const cx = video.cropX ?? 0;
+            const cy = video.cropY ?? 0;
+            videoFilters.push(
+              `crop=${video.cropWidth}:${video.cropHeight}:${cx}:${cy}`
+            );
+          }
+
+          // Scale & Fill
+          videoFilters.push(
+            `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
+          );
+          videoFilters.push(
+            `crop=${width}:${videoHeight}:(iw-${width})/2:(ih-${videoHeight})/2`
+          );
+
+          // Pad
+          videoFilters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
+
+          // Text Overlays
+          // Main Title
+          const mainTitleFilters = createFormattedTextFilters(
+            options.mainTitle,
+            "(w-text_w)/2",
+            90,
+            titleFont
+          );
+          videoFilters.push(...mainTitleFilters);
+
+          // Rankings
+          const revealedRanks = new Set<number>();
+          for (let j = 0; j <= options.videos.indexOf(video); j++) {
+            const revealedVideo = options.videos[j];
+            if (revealedVideo) revealedRanks.add(revealedVideo.rank);
+          }
+
+          for (let i = 0; i < totalVideos; i++) {
+            const rankNum = i + 1;
+            const yPos = rankingStartY + i * rankingItemHeight;
+            const videoInfo = options.videos.find((v) => v.rank === rankNum);
+            const numColor = rankNum === video.rank ? "yellow" : "white";
+            const titleColor = rankNum === video.rank ? "yellow" : "white";
+
+            videoFilters.push(
+              `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
+            );
+
+            if (revealedRanks.has(rankNum) && videoInfo) {
+              const videoTitleFilters = createFormattedTextFilters(
+                videoInfo.title,
+                90,
+                yPos + 4,
+                rankingFont,
+                titleColor,
+                48,
+                true
+              );
+              videoFilters.push(...videoTitleFilters);
+            }
+          }
+
+          // Combine all video filters into one chain
+          const videoChain = `[0:v]${videoFilters.join(",")}[outv]`;
+          complexFilters.push(videoChain);
+
+          // 2. Audio Processing Chain
+          let finalAudioMap = "[outa]"; // Default output label
+
+          // Helper to add audio inputs
+          let inputCount = 1; // 0 is main video
+          const memeSounds = video.memeSounds || [];
+
+          if (memeSounds.length > 0) {
+            memeSounds.forEach((sound) => {
+              // Resolve absolutely
+              const soundPath = path.resolve(sound.file);
+              command.input(soundPath);
+            });
+          }
+
           if (hasAudio) {
-            // If trimming audio, we need atrim filter
             const audioFilters: string[] = [];
+
+            // Audio Trim
             if (
               trimStart !== undefined &&
               !isNaN(trimStart) &&
@@ -519,120 +540,138 @@ export async function createRankingVideo(
               !isNaN(trimEnd) &&
               trimEnd > trimStart
             ) {
-              console.log(
-                `Applying audio trim filter: start=${trimStart} end=${trimEnd}`
-              );
-              audioFilters.push(
-                `atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS`
+              complexFilters.push(
+                `[0:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS[a_trimmed]`
               );
             } else if (trimStart !== undefined && !isNaN(trimStart)) {
-              console.log(`Applying audio trim filter: start=${trimStart}`);
-              audioFilters.push(
-                `atrim=start=${trimStart},asetpts=PTS-STARTPTS`
+              complexFilters.push(
+                `[0:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS[a_trimmed]`
               );
+            } else {
+              // Just copy label
+              complexFilters.push(`[0:a]anull[a_trimmed]`);
             }
 
-            command
-              .videoFilters(filters)
-              .audioCodec("aac")
-              .audioBitrate("320k")
-              .audioFrequency(44100)
-              .audioChannels(2)
-              .videoCodec("libx264")
-              .outputOptions([
-                "-preset",
-                "fast",
-                "-crf",
-                "23",
-                "-r",
-                "30",
-                "-pix_fmt",
-                "yuv420p",
-              ])
-              .output(outputPath);
+            // Mixing
+            if (memeSounds.length > 0) {
+              const mixInputs = ["[a_trimmed]"];
 
-            if (audioFilters.length > 0) {
-              command.audioFilters(audioFilters);
-            }
+              memeSounds.forEach((sound) => {
+                const delayMs = Math.round(sound.startTime * 1000);
+                const volume = sound.volume || 1.0;
 
-            command
-              .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
-              .on("end", () => {
-                console.log(`Successfully processed video ${video.rank}`);
-                processedVideos.push(outputPath);
-                resolve();
-              })
-              .on("error", (err) => {
-                console.error(`Error processing video ${video.rank}:`, err);
-                reject(err);
-              })
-              .run();
-          } else {
-            console.log(
-              `Video ${video.rank} has no audio - adding silent audio`
-            );
-            // Complex filter for no-audio case needs careful handling of trim
-            // Since we generate silence, we don't need to trim the silence, but we do need to match the TRIMMED video duration.
-            // However, regular 'trim' on video changes duration.
-            // ffmpeg's 'shortest' option against generated silence works but assumes silence > video.
-            // anullsrc generates infinite silence.
-
-            const videoFilterString = filters.join(",");
-            const filterComplex = `[0:v]${videoFilterString}[outv];anullsrc=channel_layout=stereo:sample_rate=44100[silent]`;
-
-            command
-              .complexFilter(filterComplex)
-              .outputOptions([
-                "-map",
-                "[outv]",
-                "-map",
-                "[silent]",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "fast",
-                "-crf",
-                "23",
-                "-r",
-                "30",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "320k",
-                "-shortest",
-              ])
-              .output(outputPath)
-              .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
-              .on("end", () => {
-                console.log(
-                  `Successfully processed video ${video.rank} with silent audio`
+                // Input index for this sound is `inputCount`
+                complexFilters.push(
+                  `[${inputCount}:a]volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
                 );
-                processedVideos.push(outputPath);
-                resolve();
-              })
-              .on("error", (err) => {
-                console.error(`Error processing video ${video.rank}:`, err);
-                reject(err);
-              })
-              .run();
+                mixInputs.push(`[delayed${inputCount}]`);
+                inputCount++;
+              });
+
+              // Apply amix
+              // duration=first ensures result length matches the video clip (assuming a_trimmed matches video duration)
+              complexFilters.push(
+                `${mixInputs.join("")}amix=inputs=${
+                  mixInputs.length
+                }:duration=first:dropout_transition=0[outa]`
+              );
+            } else {
+              // No mixing, just pass through
+              complexFilters.push(`[a_trimmed]anull[outa]`);
+            }
+          } else {
+            // No source audio - generate silence matching video duration
+            // But we don't easily know video duration here after trim without calculation.
+            // Alternative: mix meme sounds with a generated nullsrc.
+            // But amix duration=first would make it infinite or zero?
+            // Safer: Use 'shortest' in output options OR trim the nullsrc?
+            // Actually, if we use [outv] (video) as reference... no, audio generation is independent.
+
+            // Strategy:
+            // 1. Generate anullsrc.
+            // 2. Mix with meme sounds (if any).
+            // 3. For the output, use -shortest. This will cut audio to video length.
+
+            complexFilters.push(
+              `anullsrc=channel_layout=stereo:sample_rate=44100[a_silence]`
+            );
+
+            if (memeSounds.length > 0) {
+              const mixInputs = ["[a_silence]"];
+              memeSounds.forEach((sound) => {
+                const delayMs = Math.round(sound.startTime * 1000);
+                const volume = sound.volume || 1.0;
+
+                complexFilters.push(
+                  `[${inputCount}:a]volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
+                );
+                mixInputs.push(`[delayed${inputCount}]`);
+                inputCount++;
+              });
+
+              // For silence base, 'duration=first' on amix is DANGEROUS because silence is infinite.
+              // We should use 'duration=longest' but that might extend beyond video.
+              // OR: We rely on `-shortest` in output options to cut everything.
+              complexFilters.push(
+                `${mixInputs.join("")}amix=inputs=${
+                  mixInputs.length
+                }:duration=longest:dropout_transition=0[outa]`
+              );
+            } else {
+              complexFilters.push(`[a_silence]anull[outa]`);
+            }
           }
+
+          // Execute
+          command
+            .complexFilter(complexFilters)
+            .outputOptions([
+              "-map",
+              "[outv]",
+              "-map",
+              "[outa]",
+              "-c:v",
+              "libx264",
+              "-preset",
+              "fast",
+              "-crf",
+              "23",
+              "-r",
+              "30",
+              "-pix_fmt",
+              "yuv420p",
+              "-c:a",
+              "aac",
+              "-b:a",
+              "320k",
+              "-shortest", // Crucial for ignoring extra audio length
+            ])
+            .output(outputPath)
+            .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
+            .on("end", () => {
+              console.log(`Successfully processed video ${video.rank}`);
+              processedVideos.push(outputPath);
+              resolve();
+            })
+            .on("error", (err) => {
+              console.error(`Error processing video ${video.rank}:`, err);
+              reject(err);
+            })
+            .run();
         });
       });
     }
 
     // Concatenation
     const fileListPathNative = path.resolve(tempDir, "filelist.txt");
-    const fileListPath = fileListPathNative.replace(/\\/g, "/");
     const fileListContent = processedVideos
       .map((p) => `file '${p}'`)
       .join("\n");
-    fs.writeFileSync(fileListPathNative, fileListContent); // Use native path for fs operations
+    fs.writeFileSync(fileListPathNative, fileListContent);
 
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
-        .input(fileListPath)
+        .input(fileListPathNative)
         .inputOptions(["-f concat", "-safe 0"])
         .outputOptions([
           "-c:v",

@@ -6,20 +6,23 @@ import {
   clampCropToBounds,
   detectCropPreset,
 } from "../utils/cropUtils";
+import { memeSoundsApi } from "../api/meme-sounds.api";
+import type { MemeSound, VideoMemeSound } from "../types/timeline";
 import "./VideoEditor.css";
 
 interface VideoEditorProps {
   url: string;
   isOpen: boolean;
   onClose: () => void;
-  // Updated onSave to include optional crop values
+  // Updated onSave to include optional crop values and meme sounds
   onSave: (
     trimStart: number,
     trimEnd: number,
     cropX?: number,
     cropY?: number,
     cropWidth?: number,
-    cropHeight?: number
+    cropHeight?: number,
+    memeSounds?: VideoMemeSound[]
   ) => void;
   initialTrimStart?: number;
   initialTrimEnd?: number;
@@ -28,6 +31,7 @@ interface VideoEditorProps {
   initialCropY?: number;
   initialCropWidth?: number;
   initialCropHeight?: number;
+  initialMemeSounds?: VideoMemeSound[];
 }
 
 export function VideoEditor({
@@ -41,6 +45,7 @@ export function VideoEditor({
   initialCropY,
   initialCropWidth,
   initialCropHeight,
+  initialMemeSounds = [],
 }: VideoEditorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -61,15 +66,11 @@ export function VideoEditor({
   const [videoNativeHeight, setVideoNativeHeight] = useState(0);
 
   // Crop state (stored in source video pixels)
-  // If no initial crop, will be set to full frame on metadata load
   const [cropX, setCropX] = useState(initialCropX ?? 0);
   const [cropY, setCropY] = useState(initialCropY ?? 0);
   const [cropWidth, setCropWidth] = useState(initialCropWidth ?? 0);
   const [cropHeight, setCropHeight] = useState(initialCropHeight ?? 0);
   const [activePreset, setActivePreset] = useState<CropPreset>("freeform");
-
-  // Edit mode: "trim" or "crop" - allows user to focus on one at a time
-  const [editMode, setEditMode] = useState<"trim" | "crop">("trim");
 
   // Crop drag state
   const [isCropDragging, setIsCropDragging] = useState(false);
@@ -83,6 +84,30 @@ export function VideoEditor({
     width: 0,
     height: 0,
   });
+
+  // Meme Sounds State
+  const [editMode, setEditMode] = useState<"trim" | "crop" | "sounds">("trim");
+  const [videoMemeSounds, setVideoMemeSounds] =
+    useState<VideoMemeSound[]>(initialMemeSounds);
+  const [availableSounds, setAvailableSounds] = useState<MemeSound[]>([]);
+  const [loadingSounds, setLoadingSounds] = useState(false);
+  const [draggedSoundId, setDraggedSoundId] = useState<string | null>(null);
+
+  // Audio Playback References
+  const lastTimeRef = useRef(initialTrimStart);
+  const playedSoundsRef = useRef<Set<string>>(new Set()); // Track played sounds to avoid repeats
+
+  // Fetch sounds on mount
+  useEffect(() => {
+    if (isOpen) {
+      setLoadingSounds(true);
+      memeSoundsApi
+        .list()
+        .then(setAvailableSounds)
+        .catch((err) => console.error("Failed to fetch sounds", err))
+        .finally(() => setLoadingSounds(false));
+    }
+  }, [isOpen]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -115,7 +140,6 @@ export function VideoEditor({
         setCropHeight(nativeH);
         setActivePreset("freeform");
       } else {
-        // Detect preset from initial crop
         setActivePreset(
           detectCropPreset({
             x: cropX,
@@ -133,9 +157,42 @@ export function VideoEditor({
       const cur = videoRef.current.currentTime;
       setCurrentTime(cur);
 
+      // Audio Trigger Logic
+      if (isPlaying) {
+        // Check for sounds that should play
+        videoMemeSounds.forEach((sound) => {
+          // Sound start time is relative to trimStart, so absolute time is trimStart + sound.startTime
+          const absoluteStartTime = trimStart + sound.startTime;
+
+          // If we are past the start time and haven't played this sound yet
+          if (
+            cur >= absoluteStartTime &&
+            !playedSoundsRef.current.has(sound.id)
+          ) {
+            // Mark as played
+            playedSoundsRef.current.add(sound.id);
+            // Play sound - use the file URL directly (which should be the full URL)
+            const soundUrl = sound.file;
+            console.log("Playing meme sound:", soundUrl, "at time:", cur);
+
+            const audio = new Audio(soundUrl);
+            audio.volume = sound.volume || 1.0;
+            audio.crossOrigin = "anonymous";
+            audio
+              .play()
+              .then(() => console.log("Audio playing successfully"))
+              .catch((e) => console.error("Audio play failed:", e, soundUrl));
+          }
+        });
+      }
+
+      lastTimeRef.current = cur;
+
       // Loop within trim region
       if (cur >= trimEnd) {
         videoRef.current.currentTime = trimStart;
+        lastTimeRef.current = trimStart;
+        playedSoundsRef.current.clear(); // Reset played sounds on loop
         if (!isPlaying) {
           videoRef.current.pause();
         }
@@ -153,6 +210,8 @@ export function VideoEditor({
           videoRef.current.currentTime < trimStart
         ) {
           videoRef.current.currentTime = trimStart;
+          lastTimeRef.current = trimStart;
+          playedSoundsRef.current.clear(); // Reset played sounds when starting playback
         }
         videoRef.current.play();
       }
@@ -164,6 +223,7 @@ export function VideoEditor({
     if (videoRef.current) {
       videoRef.current.currentTime = trimStart;
       setCurrentTime(trimStart);
+      lastTimeRef.current = trimStart;
     }
   };
 
@@ -171,11 +231,11 @@ export function VideoEditor({
     if (videoRef.current) {
       videoRef.current.currentTime = Math.max(trimEnd - 0.5, trimStart);
       setCurrentTime(Math.max(trimEnd - 0.5, trimStart));
+      lastTimeRef.current = Math.max(trimEnd - 0.5, trimStart);
     }
   };
 
   const handleSave = () => {
-    // Include crop values only if they differ from full frame
     const isFullFrame =
       cropX === 0 &&
       cropY === 0 &&
@@ -183,14 +243,29 @@ export function VideoEditor({
       cropHeight === videoNativeHeight;
 
     if (isFullFrame) {
-      onSave(trimStart, trimEnd);
+      onSave(
+        trimStart,
+        trimEnd,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        videoMemeSounds
+      );
     } else {
-      onSave(trimStart, trimEnd, cropX, cropY, cropWidth, cropHeight);
+      onSave(
+        trimStart,
+        trimEnd,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        videoMemeSounds
+      );
     }
     onClose();
   };
 
-  // Handle crop preset selection
   const handlePresetSelect = (preset: CropPreset) => {
     if (videoNativeWidth === 0 || videoNativeHeight === 0) return;
 
@@ -206,7 +281,6 @@ export function VideoEditor({
     setActivePreset(preset);
   };
 
-  // Reset crop to full frame
   const handleResetCrop = () => {
     setCropX(0);
     setCropY(0);
@@ -215,7 +289,6 @@ export function VideoEditor({
     setActivePreset("freeform");
   };
 
-  // Crop drag handlers
   const handleCropMouseDown = (
     e: React.MouseEvent,
     type: "move" | "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w"
@@ -233,7 +306,6 @@ export function VideoEditor({
     });
   };
 
-  // Effect for crop dragging
   useEffect(() => {
     if (!isCropDragging || !cropContainerRef.current) return;
 
@@ -242,7 +314,6 @@ export function VideoEditor({
       if (!container || videoNativeWidth === 0) return;
 
       const rect = container.getBoundingClientRect();
-      // Calculate scale factor: displayed size vs native size
       const scaleX = videoNativeWidth / rect.width;
       const scaleY = videoNativeHeight / rect.height;
 
@@ -258,7 +329,6 @@ export function VideoEditor({
         newX = cropDragInitial.x + deltaX;
         newY = cropDragInitial.y + deltaY;
       } else {
-        // Handle resize based on which handle is being dragged
         if (cropDragType?.includes("w")) {
           newX = cropDragInitial.x + deltaX;
           newWidth = cropDragInitial.width - deltaX;
@@ -275,7 +345,6 @@ export function VideoEditor({
         }
       }
 
-      // Clamp to bounds
       const clamped = clampCropToBounds(
         { x: newX, y: newY, width: newWidth, height: newHeight },
         videoNativeWidth,
@@ -310,7 +379,6 @@ export function VideoEditor({
     videoNativeHeight,
   ]);
 
-  // Calculate crop overlay position as percentages of the video display
   const getCropStyle = () => {
     if (videoNativeWidth === 0 || videoNativeHeight === 0) {
       return { left: "0%", top: "0%", width: "100%", height: "100%" };
@@ -323,7 +391,6 @@ export function VideoEditor({
     };
   };
 
-  // Timeline drag handling
   const getTimeFromPosition = useCallback(
     (clientX: number) => {
       if (!timelineRef.current || duration === 0) return 0;
@@ -334,6 +401,21 @@ export function VideoEditor({
     [duration]
   );
 
+  // Sound helper: Get time from sound timeline position (relative to trim start)
+  const getSoundTimeFromPosition = useCallback(
+    (clientX: number) => {
+      if (!timelineRef.current) return 0;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const pos = (clientX - rect.left) / rect.width;
+      // The sound timeline represents the duration of the TRIMMED clip
+      const clipDuration = trimEnd - trimStart;
+      if (clipDuration <= 0) return 0;
+
+      return Math.max(0, Math.min(clipDuration, pos * clipDuration));
+    },
+    [trimStart, trimEnd]
+  );
+
   const handleTimelineMouseDown = (
     e: React.MouseEvent,
     type: "start" | "end" | "playhead"
@@ -342,52 +424,81 @@ export function VideoEditor({
     setIsDragging(type);
   };
 
-  const handleTimelineClick = (e: React.MouseEvent) => {
-    if (isDragging) return;
-    const time = getTimeFromPosition(e.clientX);
-    if (videoRef.current) {
-      // Clamp to trim region
-      const clampedTime = Math.max(trimStart, Math.min(trimEnd, time));
-      videoRef.current.currentTime = clampedTime;
-      setCurrentTime(clampedTime);
-    }
+  // Logic to add valid sound
+  const handleAddSound = (sound: MemeSound) => {
+    // robust random id
+    const randomId =
+      Date.now().toString(36) + Math.random().toString(36).substring(2);
+    const newSound: VideoMemeSound = {
+      id: randomId,
+      soundId: sound.id,
+      file: sound.url, // We might need backend path vs URL logic. URL is acceptable for now.
+      startTime: 0, // Default to start of clip
+      volume: 1.0,
+    };
+    setVideoMemeSounds([...videoMemeSounds, newSound]);
   };
 
+  const handleRemoveSound = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setVideoMemeSounds(videoMemeSounds.filter((s) => s.id !== id));
+  };
+
+  const handleSoundDragStart = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDraggedSoundId(id);
+  };
+
+  // Unified Global Mouse Move/Up for Timeline & Sound dragging
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      const time = getTimeFromPosition(e.clientX);
+      if (isDragging) {
+        const time = getTimeFromPosition(e.clientX);
 
-      if (isDragging === "start") {
-        if (time < trimEnd - 0.5) {
-          setTrimStart(time);
-          if (videoRef.current && currentTime < time) {
-            videoRef.current.currentTime = time;
-            setCurrentTime(time);
+        if (isDragging === "start") {
+          if (time < trimEnd - 0.5) {
+            setTrimStart(time);
+            if (videoRef.current && currentTime < time) {
+              videoRef.current.currentTime = time;
+              setCurrentTime(time);
+              lastTimeRef.current = time;
+            }
+          }
+        } else if (isDragging === "end") {
+          if (time > trimStart + 0.5) {
+            setTrimEnd(time);
+            if (videoRef.current && currentTime > time) {
+              videoRef.current.currentTime = time;
+              setCurrentTime(time);
+              lastTimeRef.current = time;
+            }
+          }
+        } else if (isDragging === "playhead") {
+          const clampedTime = Math.max(trimStart, Math.min(trimEnd, time));
+          if (videoRef.current) {
+            videoRef.current.currentTime = clampedTime;
+            setCurrentTime(clampedTime);
+            lastTimeRef.current = clampedTime;
           }
         }
-      } else if (isDragging === "end") {
-        if (time > trimStart + 0.5) {
-          setTrimEnd(time);
-          if (videoRef.current && currentTime > time) {
-            videoRef.current.currentTime = time;
-            setCurrentTime(time);
-          }
-        }
-      } else if (isDragging === "playhead") {
-        const clampedTime = Math.max(trimStart, Math.min(trimEnd, time));
-        if (videoRef.current) {
-          videoRef.current.currentTime = clampedTime;
-          setCurrentTime(clampedTime);
-        }
+      } else if (draggedSoundId) {
+        // Handle sound dragging
+        // Calculate new start time relative to clip duration
+        const soundTime = getSoundTimeFromPosition(e.clientX);
+        setVideoMemeSounds((prev) =>
+          prev.map((s) =>
+            s.id === draggedSoundId ? { ...s, startTime: soundTime } : s
+          )
+        );
       }
     };
 
     const handleMouseUp = () => {
       setIsDragging(null);
+      setDraggedSoundId(null);
     };
 
-    if (isDragging) {
+    if (isDragging || draggedSoundId) {
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     }
@@ -396,7 +507,15 @@ export function VideoEditor({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDragging, trimStart, trimEnd, currentTime, getTimeFromPosition]);
+  }, [
+    isDragging,
+    trimStart,
+    trimEnd,
+    currentTime,
+    getTimeFromPosition,
+    draggedSoundId,
+    getSoundTimeFromPosition,
+  ]);
 
   if (!isOpen) return null;
 
@@ -405,13 +524,21 @@ export function VideoEditor({
   const endPercent = (trimEnd / duration) * 100 || 100;
   const playheadPercent = (currentTime / duration) * 100 || 0;
 
+  // For Sound Timeline (relative to trim)
+  // Playhead position within the TRIMMED region (0-100% of trim duration)
+  const relativeCurrentTime = currentTime - trimStart;
+  const relativePlayheadPercent = Math.max(
+    0,
+    Math.min(100, (relativeCurrentTime / clipDuration) * 100)
+  );
+
   return (
     <div className="video-editor-overlay" onClick={onClose}>
       <div className="video-editor-modal" onClick={(e) => e.stopPropagation()}>
         <div className="editor-header">
           <div className="header-title">
             <span className="header-icon">
-              {editMode === "trim" ? "✂️" : "🔲"}
+              {editMode === "trim" ? "✂️" : editMode === "crop" ? "🔲" : "🎵"}
             </span>
             <h3>Video Editor</h3>
           </div>
@@ -434,6 +561,12 @@ export function VideoEditor({
           >
             🔲 Crop
           </button>
+          <button
+            className={`mode-tab ${editMode === "sounds" ? "active" : ""}`}
+            onClick={() => setEditMode("sounds")}
+          >
+            🎵 Sounds
+          </button>
         </div>
 
         <div className="video-viewport" ref={cropContainerRef}>
@@ -446,15 +579,13 @@ export function VideoEditor({
             onPause={() => setIsPlaying(false)}
             onClick={togglePlay}
           />
-          {/* Crop Overlay - only show in crop mode */}
+          {/* Crop Overlay */}
           {editMode === "crop" && videoNativeWidth > 0 && (
             <div className="crop-overlay-container">
-              {/* Darkened areas outside crop region */}
+              {/* Use existing crop overlay logic */}
               <div
                 className="crop-mask crop-mask-top"
-                style={{
-                  height: getCropStyle().top,
-                }}
+                style={{ height: getCropStyle().top }}
               />
               <div
                 className="crop-mask crop-mask-bottom"
@@ -486,49 +617,22 @@ export function VideoEditor({
                   })`,
                 }}
               />
-              {/* Crop region with handles */}
               <div
                 className="crop-region"
                 style={getCropStyle()}
                 onMouseDown={(e) => handleCropMouseDown(e, "move")}
               >
-                {/* Corner handles */}
-                <div
-                  className="crop-handle crop-handle-nw"
-                  onMouseDown={(e) => handleCropMouseDown(e, "nw")}
-                />
-                <div
-                  className="crop-handle crop-handle-ne"
-                  onMouseDown={(e) => handleCropMouseDown(e, "ne")}
-                />
-                <div
-                  className="crop-handle crop-handle-sw"
-                  onMouseDown={(e) => handleCropMouseDown(e, "sw")}
-                />
-                <div
-                  className="crop-handle crop-handle-se"
-                  onMouseDown={(e) => handleCropMouseDown(e, "se")}
-                />
-                {/* Edge handles */}
-                <div
-                  className="crop-handle crop-handle-n"
-                  onMouseDown={(e) => handleCropMouseDown(e, "n")}
-                />
-                <div
-                  className="crop-handle crop-handle-s"
-                  onMouseDown={(e) => handleCropMouseDown(e, "s")}
-                />
-                <div
-                  className="crop-handle crop-handle-w"
-                  onMouseDown={(e) => handleCropMouseDown(e, "w")}
-                />
-                <div
-                  className="crop-handle crop-handle-e"
-                  onMouseDown={(e) => handleCropMouseDown(e, "e")}
-                />
+                {["nw", "ne", "sw", "se", "n", "s", "e", "w"].map((h) => (
+                  <div
+                    key={h}
+                    className={`crop-handle crop-handle-${h}`}
+                    onMouseDown={(e) => handleCropMouseDown(e, h as any)}
+                  />
+                ))}
               </div>
             </div>
           )}
+
           <div
             className={`play-overlay ${isPlaying ? "hidden" : ""}`}
             onClick={togglePlay}
@@ -537,49 +641,177 @@ export function VideoEditor({
           </div>
         </div>
 
-        {/* Crop Presets - only show in crop mode */}
-        {editMode === "crop" && (
+        {/* Lower Panel Content based on Mode */}
+        {editMode === "sounds" ? (
+          <div className="sounds-panel">
+            {/* Sound Library */}
+            <div className="sounds-library">
+              <h4>Available Sounds</h4>
+              <div className="sounds-list">
+                {loadingSounds && <div>Loading sounds...</div>}
+                {availableSounds.map((sound) => (
+                  <div
+                    key={sound.id}
+                    className="sound-item"
+                    onClick={() => handleAddSound(sound)}
+                  >
+                    <span className="sound-icon">🔊</span>
+                    <span className="sound-name">{sound.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Sounds Timeline (Relative) */}
+            <div className="sounds-timeline-container">
+              <div className="timeline-labels">
+                <span>0:00</span>
+                <span className="trim-range-label">
+                  Sound Tracks (Relative to Trim)
+                </span>
+                <span>{formatTime(clipDuration)}</span>
+              </div>
+
+              <div className="timeline sound-timeline" ref={timelineRef}>
+                <div className="timeline-track" />
+
+                {/* Playhead (relative) */}
+                <div
+                  className="playhead"
+                  style={{ left: `${relativePlayheadPercent}%` }}
+                />
+
+                {/* Placed Sounds */}
+                {videoMemeSounds.map((inst) => {
+                  const soundDef = availableSounds.find(
+                    (s) => s.id === inst.soundId
+                  );
+                  // Ensure we don't divide by zero
+                  const safeDuration = clipDuration > 0 ? clipDuration : 1;
+                  const leftPercent = Math.min(
+                    100,
+                    Math.max(0, (inst.startTime / safeDuration) * 100)
+                  );
+
+                  return (
+                    <div
+                      key={inst.id}
+                      className="placed-sound"
+                      style={{ left: `${leftPercent}%` }}
+                      onMouseDown={(e) => handleSoundDragStart(inst.id, e)}
+                      title={`Starts at ${formatTime(inst.startTime)}`}
+                    >
+                      <span className="sound-time">
+                        {formatTime(inst.startTime)}
+                      </span>
+                      <span className="sound-label">
+                        {soundDef?.name || "Sound"}
+                      </span>
+                      <button
+                        className="sound-remove-btn"
+                        onClick={(e) => handleRemoveSound(inst.id, e)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : editMode === "crop" ? (
           <div className="crop-presets">
             <span className="crop-presets-label">Crop:</span>
-            <button
-              className={`crop-preset-btn ${
-                activePreset === "9:16" ? "active" : ""
-              }`}
-              onClick={() => handlePresetSelect("9:16")}
-              title="Vertical (TikTok, Reels)"
-            >
-              9:16
-            </button>
-            <button
-              className={`crop-preset-btn ${
-                activePreset === "1:1" ? "active" : ""
-              }`}
-              onClick={() => handlePresetSelect("1:1")}
-              title="Square (Instagram)"
-            >
-              1:1
-            </button>
-            <button
-              className={`crop-preset-btn ${
-                activePreset === "16:9" ? "active" : ""
-              }`}
-              onClick={() => handlePresetSelect("16:9")}
-              title="Horizontal (YouTube)"
-            >
-              16:9
-            </button>
-            <button
-              className={`crop-preset-btn ${
-                activePreset === "freeform" ? "active" : ""
-              }`}
-              onClick={() => handlePresetSelect("freeform")}
-              title="Full Frame"
-            >
-              Full
-            </button>
+            {["9:16", "1:1", "16:9", "freeform"].map((p) => (
+              <button
+                key={p}
+                className={`crop-preset-btn ${
+                  activePreset === p ? "active" : ""
+                }`}
+                onClick={() => handlePresetSelect(p as any)}
+              >
+                {p === "freeform" ? "Full" : p}
+              </button>
+            ))}
             <span className="crop-info">
               {cropWidth}×{cropHeight}
             </span>
+          </div>
+        ) : (
+          // Trim Controls default
+          <div className="timeline-container">
+            <div className="timeline-labels">
+              <span>{formatTime(trimStart)}</span>
+              <span className="trim-range-label">Trim Range</span>
+              <span>{formatTime(trimEnd)}</span>
+            </div>
+
+            <div
+              className="timeline"
+              ref={timelineRef}
+              onClick={(e) => {
+                if (isDragging) return;
+                const time = getTimeFromPosition(e.clientX);
+                if (videoRef.current) {
+                  const clampedTime = Math.max(
+                    trimStart,
+                    Math.min(trimEnd, time)
+                  );
+                  videoRef.current.currentTime = clampedTime;
+                  setCurrentTime(clampedTime);
+                }
+              }}
+            >
+              <div className="timeline-track" />
+              <div
+                className="timeline-dimmed"
+                style={{ left: 0, width: `${startPercent}%` }}
+              />
+              <div
+                className="timeline-selected"
+                style={{
+                  left: `${startPercent}%`,
+                  width: `${endPercent - startPercent}%`,
+                }}
+              />
+              <div
+                className="timeline-dimmed"
+                style={{ left: `${endPercent}%`, right: 0 }}
+              />
+
+              <div
+                className="trim-handle start-handle"
+                style={{ left: `${startPercent}%` }}
+                onMouseDown={(e) => handleTimelineMouseDown(e, "start")}
+              >
+                <div className="handle-grip">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+
+              <div
+                className="trim-handle end-handle"
+                style={{ left: `${endPercent}%` }}
+                onMouseDown={(e) => handleTimelineMouseDown(e, "end")}
+              >
+                <div className="handle-grip">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+
+              <div
+                className="playhead"
+                style={{ left: `${playheadPercent}%` }}
+                onMouseDown={(e) => handleTimelineMouseDown(e, "playhead")}
+              >
+                <div className="playhead-head" />
+                <div className="playhead-line" />
+              </div>
+            </div>
           </div>
         )}
 
@@ -594,13 +826,8 @@ export function VideoEditor({
               <span className="time-label">Clip Duration</span>
               <span className="time-value">{formatTime(clipDuration)}</span>
             </div>
-            <div className="time-stat">
-              <span className="time-label">Total</span>
-              <span className="time-value">{formatTime(duration)}</span>
-            </div>
           </div>
 
-          {/* Playback Controls */}
           <div className="playback-controls">
             <button
               className="control-btn"
@@ -621,83 +848,6 @@ export function VideoEditor({
             </button>
           </div>
 
-          {/* Timeline - only show in trim mode */}
-          {editMode === "trim" && (
-            <div className="timeline-container">
-              <div className="timeline-labels">
-                <span>{formatTime(trimStart)}</span>
-                <span className="trim-range-label">Trim Range</span>
-                <span>{formatTime(trimEnd)}</span>
-              </div>
-
-              <div
-                className="timeline"
-                ref={timelineRef}
-                onClick={handleTimelineClick}
-              >
-                {/* Full track background */}
-                <div className="timeline-track" />
-
-                {/* Dimmed area before trim start */}
-                <div
-                  className="timeline-dimmed"
-                  style={{ left: 0, width: `${startPercent}%` }}
-                />
-
-                {/* Selected trim region */}
-                <div
-                  className="timeline-selected"
-                  style={{
-                    left: `${startPercent}%`,
-                    width: `${endPercent - startPercent}%`,
-                  }}
-                />
-
-                {/* Dimmed area after trim end */}
-                <div
-                  className="timeline-dimmed"
-                  style={{ left: `${endPercent}%`, right: 0 }}
-                />
-
-                {/* Trim handles */}
-                <div
-                  className="trim-handle start-handle"
-                  style={{ left: `${startPercent}%` }}
-                  onMouseDown={(e) => handleTimelineMouseDown(e, "start")}
-                >
-                  <div className="handle-grip">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
-
-                <div
-                  className="trim-handle end-handle"
-                  style={{ left: `${endPercent}%` }}
-                  onMouseDown={(e) => handleTimelineMouseDown(e, "end")}
-                >
-                  <div className="handle-grip">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
-
-                {/* Playhead */}
-                <div
-                  className="playhead"
-                  style={{ left: `${playheadPercent}%` }}
-                  onMouseDown={(e) => handleTimelineMouseDown(e, "playhead")}
-                >
-                  <div className="playhead-head" />
-                  <div className="playhead-line" />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Action Buttons */}
           <div className="action-buttons">
             <button className="cancel-btn" onClick={onClose}>
               Cancel
@@ -708,6 +858,7 @@ export function VideoEditor({
                 setTrimStart(0);
                 setTrimEnd(duration);
                 handleResetCrop();
+                setVideoMemeSounds([]);
               }}
             >
               Reset All

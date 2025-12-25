@@ -16,6 +16,22 @@ export interface TimelineClip {
   cropY?: number; // Crop Y offset from top edge
   cropWidth?: number; // Crop region width
   cropHeight?: number; // Crop region height
+  memeSounds?: VideoMemeSound[];
+}
+
+export interface MemeSound {
+  id: string; // Filename usually
+  name: string; // Display name
+  filename: string;
+  url: string; // /assets/sounds/filename
+}
+
+export interface VideoMemeSound {
+  id: string; // Unique instance ID
+  soundId: string; // Reference to MemeSound.id
+  file: string; // Filename or path (for backend)
+  startTime: number; // Relative to trim start
+  volume: number;
 }
 
 export interface TextOverlay {

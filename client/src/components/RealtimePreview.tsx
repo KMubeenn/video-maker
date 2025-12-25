@@ -4,6 +4,7 @@ import {
   type TimelineState,
   type TimelineClip,
   type TextOverlay,
+  type VideoMemeSound,
 } from "../types/timeline";
 import "./RealtimePreview.css";
 import { Pause, Play } from "lucide-react";
@@ -21,6 +22,7 @@ interface RealtimePreviewProps {
     cropY?: number;
     cropWidth?: number;
     cropHeight?: number;
+    memeSounds?: VideoMemeSound[];
   }[];
   width: number;
   height: number;
@@ -126,6 +128,8 @@ export function RealtimePreview({
 
   // Cache assets to avoid re-downloading on text changes
   const loadedAssetsRef = useRef<Map<string, LoadedAsset>>(new Map());
+  // Cache for sound effect buffers
+  const loadedSoundsRef = useRef<Map<string, AudioBuffer>>(new Map());
 
   // Refs for rendering loop
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -133,7 +137,7 @@ export function RealtimePreview({
   const startTimeRef = useRef<number>(0);
   const videoElementsRef = useRef<Map<number, HTMLVideoElement>>(new Map());
   const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourcesRef = useRef<Map<number, AudioBufferSourceNode>>(new Map());
+  const audioSourcesRef = useRef<Map<string, AudioBufferSourceNode>>(new Map()); // Key is composite ID
   const timelineRef = useRef<TimelineState | null>(null);
 
   // Sync ref
@@ -165,83 +169,106 @@ export function RealtimePreview({
   const loadAssets = useCallback(
     async (videosToLoad: typeof videos) => {
       // Only attempt to load URLs that look somewhat valid (length > 10, http)
-      // This assumes the user is typing/pasting a full URL.
       const validToLoad = videosToLoad.filter(
         (v) => v.url && v.url.trim().length > 10 && v.url.startsWith("http")
       );
 
       // Determine which valid videos are missing from cache
-      const missing = validToLoad.filter(
+      const missingVideos = validToLoad.filter(
         (v) => !loadedAssetsRef.current.has(v.url)
       );
 
+      // Identify missing meme sounds
+      const allSoundUrls = new Set<string>();
+      videosToLoad.forEach((v) => {
+        v.memeSounds?.forEach((s) => allSoundUrls.add(s.file));
+      });
+      const missingSounds = Array.from(allSoundUrls).filter(
+        (url) => !loadedSoundsRef.current.has(url)
+      );
+
       // If nothing new to load, return true immediately
-      if (missing.length === 0) return true;
+      if (missingVideos.length === 0 && missingSounds.length === 0) return true;
 
       setLoading(true);
       setError(null);
       setIsPlaying(false); // Stop playback if assets are being reloaded
 
+      const ctx = getAudioContext();
+
       try {
-        const response = await fetch(
-          "http://localhost:4000/api/ranking/prepare-preview",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              videos: missing.map((v) => ({ url: v.url, id: v.id })),
-            }),
-          }
+        // Load Meme Sounds
+        await Promise.all(
+          missingSounds.map(async (url) => {
+            try {
+              const arrayBuffer = await fetch(url).then((res) =>
+                res.arrayBuffer()
+              );
+              const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+              loadedSoundsRef.current.set(url, audioBuffer);
+            } catch (e) {
+              console.warn(`Failed to load sound ${url}`, e);
+            }
+          })
         );
 
-        if (!response.ok) {
-          // Handle 404 or 500
-          if (response.status === 404)
-            throw new Error("Preview endpoint not found (404)");
-          throw new Error(`Server error: ${response.status}`);
-        }
+        if (missingVideos.length > 0) {
+          const response = await fetch(
+            "http://localhost:4000/api/ranking/prepare-preview",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                videos: missingVideos.map((v) => ({ url: v.url, id: v.id })),
+              }),
+            }
+          );
 
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || "Failed to download videos");
-        }
-
-        const ctx = getAudioContext();
-        const loaded: any[] = data.videos;
-
-        // Process and cache
-        for (const fileData of loaded) {
-          const originalInput = missing.find((m) => m.id === fileData.id);
-          // Fallback to finding by URL if ID mismatch
-          const originalUrl = originalInput?.url || fileData.originalUrl;
-
-          // Decode Audio with fallback
-          let audioBuffer: AudioBuffer;
-          try {
-            // 1. Fetch
-            const arrayBuffer = await fetch(fileData.url).then((res) =>
-              res.arrayBuffer()
-            );
-            // 2. Decode
-            audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-          } catch (e) {
-            console.warn(
-              `Audio decode failed for ${fileData.url}, using silence.`,
-              e
-            );
-            // Fallback: Create silent buffer
-            const duration = fileData.duration || 5; // Default 5s if unknown
-            const sampleRate = ctx.sampleRate || 44100;
-            const length = Math.ceil(duration * sampleRate);
-            audioBuffer = ctx.createBuffer(2, length, sampleRate);
+          if (!response.ok) {
+            if (response.status === 404)
+              throw new Error("Preview endpoint not found (404)");
+            throw new Error(`Server error: ${response.status}`);
           }
 
-          loadedAssetsRef.current.set(originalUrl, {
-            url: fileData.url,
-            originalUrl: originalUrl,
-            duration: fileData.duration,
-            audioBuffer,
-          });
+          const data = await response.json();
+          if (!data.success) {
+            throw new Error(data.error || "Failed to download videos");
+          }
+
+          const loaded: any[] = data.videos;
+
+          // Process and cache
+          for (const fileData of loaded) {
+            const originalInput = missingVideos.find(
+              (m) => m.id === fileData.id
+            );
+            const originalUrl = originalInput?.url || fileData.originalUrl;
+
+            // Decode Audio with fallback
+            let audioBuffer: AudioBuffer;
+            try {
+              const arrayBuffer = await fetch(fileData.url).then((res) =>
+                res.arrayBuffer()
+              );
+              audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+            } catch (e) {
+              console.warn(
+                `Audio decode failed for ${fileData.url}, using silence.`,
+                e
+              );
+              const duration = fileData.duration || 5;
+              const sampleRate = ctx.sampleRate || 44100;
+              const length = Math.ceil(duration * sampleRate);
+              audioBuffer = ctx.createBuffer(2, length, sampleRate);
+            }
+
+            loadedAssetsRef.current.set(originalUrl, {
+              url: fileData.url,
+              originalUrl: originalUrl,
+              duration: fileData.duration,
+              audioBuffer,
+            });
+          }
         }
         setLoading(false);
         return true;
@@ -261,11 +288,6 @@ export function RealtimePreview({
     const clips: TimelineClip[] = [];
     let currentOffset = 0;
 
-    // Logic: Rank 1 goes last, others shuffled (2-N).
-    // To keep preview stable while editing, we avoid random().
-    // We deterministically sort the 2-N videos for the preview.
-    // Rank 1 is always videos[0].
-
     if (videos.length === 0) {
       setTimeline(null);
       setDuration(0);
@@ -276,20 +298,14 @@ export function RealtimePreview({
     const otherVideos = videos.slice(1);
 
     // Random shuffle for other videos (Rank 2-N)
-    // To keep it stable during editing (so it doesn't jump around on every keystroke),
-    // we use a pseudo-random sort based on the video ID or URL length.
-    // If true randomness is desired on every load, we'd need state.
-    // Let's use a simple deterministic shuffle for now that looks random.
     let shuffledOthers = [...otherVideos].sort((a, b) => {
       // Simple deterministic hash based shuffle
       return ((a.id * 13 + 7) % 5) - ((b.id * 13 + 7) % 5);
     });
 
-    // If firstToPlay is specified (and valid), move that video to the front
     if (firstToPlay !== null && firstToPlay !== undefined && firstToPlay >= 1) {
       const selectedVideo = videos[firstToPlay];
       if (selectedVideo) {
-        // Remove from shuffled list and prepend
         shuffledOthers = shuffledOthers.filter(
           (v) => v.id !== selectedVideo.id
         );
@@ -299,9 +315,6 @@ export function RealtimePreview({
 
     const rawPlaybackOrder = [...shuffledOthers, rank1Video].filter(Boolean);
 
-    // Filter out videos that are not playable (no URL or not loaded)
-    // This prevents "ghost" reveals of empty/invalid videos (like the bug where video #3 plays first but shows #2 title)
-    // The previous logic skipped clip creation but kept the video in playbackOrder for overlay calculations.
     const playbackOrder = rawPlaybackOrder.filter(
       (vid) => vid.url && loadedAssetsRef.current.has(vid.url)
     );
@@ -310,7 +323,6 @@ export function RealtimePreview({
       if (!vid.url) continue;
       const asset = loadedAssetsRef.current.get(vid.url);
 
-      // If asset not loaded yet (e.g. url just typed, invalid, or loading), skip this clip
       if (!asset) continue;
 
       const trimStart = vid.trimStart || 0;
@@ -330,18 +342,17 @@ export function RealtimePreview({
         sourceStart: trimStart,
         volume: 1,
         audioBuffer: asset.audioBuffer,
-        // Include crop values for rendering
         cropX: vid.cropX,
         cropY: vid.cropY,
         cropWidth: vid.cropWidth,
         cropHeight: vid.cropHeight,
+        memeSounds: vid.memeSounds || [],
       });
       currentOffset += clipDuration;
     }
 
     const totalDuration = currentOffset;
 
-    // Even if duration is 0, we might want to clear the timeline
     if (totalDuration === 0) {
       setTimeline(null);
       setDuration(0);
@@ -367,7 +378,6 @@ export function RealtimePreview({
       const clip = clips.find((c) => c.id === playingVideo.id);
       if (!clip) return;
 
-      // Revealed Ranks Logic
       const revealedVideos = playbackOrder.slice(0, playbackIndex + 1);
       const revealedRanks = new Set(
         revealedVideos.map(
@@ -389,7 +399,7 @@ export function RealtimePreview({
 
         const color = isCurrentRank ? "#ffff00" : "white";
 
-        // Rank Number (Always Visible)
+        // Rank Number
         overlays.push({
           id: `rank-num-${rankNum}-during-${clip.id}`,
           text: [{ text: `${rankNum}.`, color: color, fontSize: 52 }],
@@ -403,7 +413,7 @@ export function RealtimePreview({
           rank: rankNum,
         });
 
-        // Video Title (Only if revealed)
+        // Video Title
         if (revealedRanks.has(rankNum)) {
           overlays.push({
             id: `rank-title-${rankNum}-during-${clip.id}`,
@@ -421,10 +431,6 @@ export function RealtimePreview({
       });
     });
 
-    // Update state only if changed meaningfully to avoid loop?
-    // React handles object identity checks, but we are creating new objects every time.
-    // However, if the functional values are same, it's fine.
-
     setDuration(totalDuration);
     setTimeline({
       duration: totalDuration,
@@ -438,14 +444,15 @@ export function RealtimePreview({
   }, [mainTitle, videos, width, height, firstToPlay]);
 
   // Effect 1: Handle Asset Loading (Debounced)
-  // This watches 'debouncedVideos' and triggers network calls
   useEffect(() => {
     const validVideos = debouncedVideos.filter(
       (v) => v.url && v.url.startsWith("http")
     );
-    const needsLoad = validVideos.some(
-      (v) => !loadedAssetsRef.current.has(v.url)
-    );
+    const needsLoad =
+      validVideos.some((v) => !loadedAssetsRef.current.has(v.url)) ||
+      debouncedVideos.some((v) =>
+        v.memeSounds?.some((s) => !loadedSoundsRef.current.has(s.file))
+      );
 
     if (needsLoad) {
       loadAssets(validVideos).then((success) => {
@@ -455,22 +462,17 @@ export function RealtimePreview({
   }, [debouncedVideos, loadAssets, buildTimeline]);
 
   // Effect 2: Handle Instant Updates (Text/Structure)
-  // This watches 'videos', 'mainTitle' etc. directly for instant formatting updates
   useEffect(() => {
-    // Check if we are waiting for assets for *current* videos
     const validVideos = videos.filter((v) => v.url && v.url.startsWith("http"));
-    const needsLoad = validVideos.some(
-      (v) => !loadedAssetsRef.current.has(v.url)
-    );
+    const needsLoad =
+      validVideos.some((v) => !loadedAssetsRef.current.has(v.url)) ||
+      videos.some((v) =>
+        v.memeSounds?.some((s) => !loadedSoundsRef.current.has(s.file))
+      );
 
     if (!needsLoad) {
-      // If we have everything needed for the current state, build immediately.
-      // This ensures text changes (which don't change needsLoad) are reflected instantly.
       buildTimeline();
     }
-    // If needsLoad IS true, we do nothing here.
-    // We wait for the Debounced effect to fire, load the assets, and THEN build.
-    // This prevents flashing or excessive reloading while typing a URL.
   }, [videos, mainTitle, width, height, buildTimeline]);
 
   // ... Render Loop and Audio Control ...
@@ -482,13 +484,11 @@ export function RealtimePreview({
       const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
 
       if (overlay.type === "main-title") {
-        // Main Title: Centered, Wrapped, Box, No Stroke
         const fontSize = 52;
         const maxWidth = 850;
         const lineHeight = fontSize + 10;
         const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
 
-        // Center vertically around Y=90
         let startY = 90;
         if (lines.length > 1) {
           startY -= ((lines.length - 1) * lineHeight) / 2;
@@ -503,8 +503,6 @@ export function RealtimePreview({
           let currentX = (width - lineWidth) / 2;
           const currentY = startY + lineIdx * lineHeight;
 
-          // Draw Box (One box per line) - FFmpeg style box padding ~12
-          // Currently using simplistic box per line
           ctx.fillStyle = "rgba(0,0,0,0.6)";
           ctx.fillRect(currentX - 12, currentY - 52, lineWidth + 24, 52 + 24);
 
@@ -516,7 +514,6 @@ export function RealtimePreview({
           });
         });
       } else if (overlay.type === "ranking-title") {
-        // Video Title: Left Aligned, Wrapped, Stroke 3px, No Shadow
         const fontSize = 48;
         const maxWidth = 700;
         const lineHeight = fontSize + 8;
@@ -529,20 +526,16 @@ export function RealtimePreview({
           line.forEach((seg) => {
             ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
             ctx.fillStyle = getSegColor(seg);
-
-            // Stroke
             ctx.strokeStyle = "black";
             ctx.lineWidth = 3;
             ctx.lineJoin = "round";
             ctx.strokeText(seg.text, currentX, currentY);
-            // Fill
             ctx.fillText(seg.text, currentX, currentY);
             currentX += ctx.measureText(seg.text).width;
           });
           currentY += lineHeight;
         });
       } else if (overlay.type === "ranking-number") {
-        // Rank Number: Simple, 52px, Stroke 3px
         const fontSize = 52;
         let currentX = 30;
         const currentY = overlay.y;
@@ -550,12 +543,10 @@ export function RealtimePreview({
         overlay.text.forEach((seg) => {
           ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
           ctx.fillStyle = getSegColor(seg);
-
           ctx.strokeStyle = "black";
           ctx.lineWidth = 3;
           ctx.lineJoin = "round";
           ctx.strokeText(seg.text, currentX, currentY);
-
           ctx.fillText(seg.text, currentX, currentY);
           currentX += ctx.measureText(seg.text).width;
         });
@@ -566,7 +557,6 @@ export function RealtimePreview({
     [width]
   );
 
-  // Rendering Loop
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !timelineRef.current) return;
@@ -586,8 +576,6 @@ export function RealtimePreview({
     ctx.fillRect(0, 0, width, height);
 
     const tl = timelineRef.current;
-
-    // Draw Active Clip
     const currentClip = tl.clips.find(
       (clip) => currentTime >= clip.startTime && currentTime < clip.endTime
     );
@@ -603,12 +591,8 @@ export function RealtimePreview({
 
         const titleHeight = 200;
         const videoAreaHeight = height - titleHeight;
-
-        // Get source dimensions - use crop if specified, otherwise full video
         const vw = videoEl.videoWidth;
         const vh = videoEl.videoHeight;
-
-        // Crop parameters (source rect for drawImage)
         const hasCrop = currentClip.cropWidth && currentClip.cropHeight;
         const sx = hasCrop ? currentClip.cropX ?? 0 : 0;
         const sy = hasCrop ? currentClip.cropY ?? 0 : 0;
@@ -616,28 +600,22 @@ export function RealtimePreview({
         const sh = hasCrop ? currentClip.cropHeight! : vh;
 
         if (sw > 0 && sh > 0) {
-          // Scale cropped region to cover target area
           const scale = Math.max(width / sw, videoAreaHeight / sh);
           const scaledW = sw * scale;
           const scaledH = sh * scale;
           const dx = (width - scaledW) / 2;
           const dy = titleHeight + (videoAreaHeight - scaledH) / 2;
 
-          // Clip video to strictly be below titleHeight
           ctx.save();
           ctx.beginPath();
           ctx.rect(0, titleHeight, width, videoAreaHeight);
           ctx.clip();
-
-          // Draw cropped video using 9-arg drawImage
-          // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
           ctx.drawImage(videoEl, sx, sy, sw, sh, dx, dy, scaledW, scaledH);
           ctx.restore();
         }
       }
     }
 
-    // Draw Overlays
     const activeOverlays = tl.overlays.filter(
       (o) => currentTime >= o.startTime && currentTime <= o.endTime
     );
@@ -704,32 +682,85 @@ export function RealtimePreview({
     stopAudio();
 
     timeline.clips.forEach((clip) => {
-      if (!clip.audioBuffer) return;
-      const source = ctx.createBufferSource();
-      source.buffer = clip.audioBuffer;
-      const gain = ctx.createGain();
-      gain.gain.value = clip.volume;
+      // 1. Play Video Audio (if buffer exists)
+      if (clip.audioBuffer) {
+        const source = ctx.createBufferSource();
+        source.buffer = clip.audioBuffer;
+        const gain = ctx.createGain();
+        gain.gain.value = clip.volume;
 
-      source.connect(gain);
-      gain.connect(ctx.destination);
+        source.connect(gain);
+        gain.connect(ctx.destination);
 
-      const clipStartTimeline = clip.startTime;
-      const clipEndTimeline = clip.endTime;
+        const clipStartTimeline = clip.startTime;
+        const clipEndTimeline = clip.endTime;
 
-      if (clipStartTimeline >= currentTime) {
-        source.start(
-          ctx.currentTime + (clipStartTimeline - currentTime),
-          clip.sourceStart,
-          clip.duration
-        );
-      } else if (clipEndTimeline > currentTime) {
-        const offset = currentTime - clipStartTimeline;
-        const bufferOffset = clip.sourceStart + offset;
-        const durationRemaining = clip.duration - offset;
-        source.start(ctx.currentTime, bufferOffset, durationRemaining);
+        if (clipStartTimeline >= currentTime) {
+          source.start(
+            ctx.currentTime + (clipStartTimeline - currentTime),
+            clip.sourceStart,
+            clip.duration
+          );
+          audioSourcesRef.current.set(`clip-${clip.id}`, source);
+        } else if (clipEndTimeline > currentTime) {
+          const offset = currentTime - clipStartTimeline;
+          const bufferOffset = clip.sourceStart + offset;
+          const durationRemaining = clip.duration - offset;
+          source.start(ctx.currentTime, bufferOffset, durationRemaining);
+          audioSourcesRef.current.set(`clip-${clip.id}`, source);
+        }
       }
 
-      audioSourcesRef.current.set(clip.id, source);
+      // 2. Play Meme Sounds
+      clip.memeSounds?.forEach((sound) => {
+        const buffer = loadedSoundsRef.current.get(sound.file);
+        if (!buffer) return;
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = ctx.createGain();
+        gain.gain.value = sound.volume || 1.0;
+
+        source.connect(gain);
+        gain.connect(ctx.destination);
+
+        // Calculate absolute start/end time for this sound instance
+        // meme sound startTime is relative to clip.startTime (after trim adjustment is implicit,
+        // wait - memeSound.startTime is relative to the TRIMMED video start, so tness=0 of the clip.
+        // So in global timeline: clip.startTime + sound.startTime.
+        const soundGlobalStart = clip.startTime + sound.startTime;
+        const soundDuration = buffer.duration;
+        const soundGlobalEnd = soundGlobalStart + soundDuration;
+
+        // But the clip might end before the sound ends?
+        // In FFmpeg we used 'amix' with 'shortest' potentially, or the video length dictates.
+        // If clip ends, visuals end. Audio might continue if not cut.
+        // FFmpeg: we use `-shortest` on the output. So meme sound also gets cut if it exceeds video.
+        // Let's enforce that here for accuracy.
+        const validInitDuration = Math.min(
+          soundDuration,
+          clip.endTime - soundGlobalStart
+        );
+        if (validInitDuration <= 0) return;
+
+        if (soundGlobalStart >= currentTime) {
+          source.start(
+            ctx.currentTime + (soundGlobalStart - currentTime),
+            0,
+            validInitDuration
+          );
+          audioSourcesRef.current.set(`sound-${sound.id}`, source);
+        } else if (soundGlobalEnd > currentTime) {
+          // Sound is partially played
+          const offset = currentTime - soundGlobalStart;
+          // if offset < 0, it means sound hasn't started (handled above)
+          // if offset >= 0 and < validInitDuration
+          if (offset < validInitDuration) {
+            source.start(ctx.currentTime, offset, validInitDuration - offset);
+            audioSourcesRef.current.set(`sound-${sound.id}`, source);
+          }
+        }
+      });
     });
   };
 
