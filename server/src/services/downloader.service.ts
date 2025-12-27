@@ -70,6 +70,30 @@ async function downloadYouTube(url: string, outputPath: string): Promise<void> {
 }
 
 /**
+ * Resolve the path to the cookies file for a specific platform.
+ * Priority:
+ * 1. server/cookies-{platform}.txt
+ * 2. root/cookies-{platform}.txt
+ * 3. server/cookies.txt
+ * 4. root/cookies.txt
+ */
+function resolveCookiePath(platform: string): string | null {
+  const fileNames = [`cookies-${platform}.txt`, "cookies.txt"];
+  const searchDirs = [process.cwd(), path.join(process.cwd(), "..")];
+
+  for (const fileName of fileNames) {
+    for (const dir of searchDirs) {
+      const filePath = path.join(dir, fileName);
+      if (fs.existsSync(filePath)) {
+        return filePath;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Download video using yt-dlp (for TikTok and Instagram)
  * Note: Requires yt-dlp to be installed on the system
  */
@@ -87,7 +111,20 @@ async function downloadWithYtDlp(
       );
     }
 
-    const command = `yt-dlp --format "best[ext=mp4]/best" --output "${outputPath}" --no-playlist "${url}"`;
+    const platform = detectPlatform(url);
+    const cookiePath = resolveCookiePath(platform);
+    let cookieArgs = "";
+
+    if (cookiePath) {
+      console.log(`Using cookies from: ${cookiePath}`);
+      cookieArgs = `--cookies "${cookiePath}"`;
+    } else {
+      console.warn(
+        `No cookies found for ${platform}. Downloads might fail. (Checked cookies-${platform}.txt and cookies.txt)`
+      );
+    }
+
+    const command = `yt-dlp ${cookieArgs} --format "best[ext=mp4]/best" --output "${outputPath}" --no-playlist "${url}"`;
 
     console.log(`Executing: ${command}`);
     await execPromise(command, { maxBuffer: 50 * 1024 * 1024 });
