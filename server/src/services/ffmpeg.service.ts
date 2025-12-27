@@ -614,15 +614,17 @@ export async function createRankingVideo(
               trimEnd > trimStart
             ) {
               complexFilters.push(
-                `[0:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS[a_trimmed]`
+                `[0:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
               );
             } else if (trimStart !== undefined && !isNaN(trimStart)) {
               complexFilters.push(
-                `[0:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS[a_trimmed]`
+                `[0:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
               );
             } else {
-              // Just copy label
-              complexFilters.push(`[0:a]anull[a_trimmed]`);
+              // Just copy label but ensure sample rate and channels match
+              complexFilters.push(
+                `[0:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
+              );
             }
 
             // Mixing
@@ -635,7 +637,7 @@ export async function createRankingVideo(
 
                 // Input index for this sound is `inputCount`
                 complexFilters.push(
-                  `[${inputCount}:a]volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
+                  `[${inputCount}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
                 );
                 mixInputs.push(`[delayed${inputCount}]`);
                 inputCount++;
@@ -646,11 +648,11 @@ export async function createRankingVideo(
               complexFilters.push(
                 `${mixInputs.join("")}amix=inputs=${
                   mixInputs.length
-                }:duration=first:dropout_transition=0[outa]`
+                }:duration=first:dropout_transition=0,aresample=44100:async=1[outa]`
               );
             } else {
-              // No mixing, just pass through
-              complexFilters.push(`[a_trimmed]anull[outa]`);
+              // No mixing, just pass through (but ensure consistent rate/sync)
+              complexFilters.push(`[a_trimmed]aresample=44100:async=1[outa]`);
             }
           } else {
             // No source audio - generate silence matching video duration
@@ -676,7 +678,7 @@ export async function createRankingVideo(
                 const volume = sound.volume || 1.0;
 
                 complexFilters.push(
-                  `[${inputCount}:a]volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
+                  `[${inputCount}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
                 );
                 mixInputs.push(`[delayed${inputCount}]`);
                 inputCount++;
@@ -688,10 +690,10 @@ export async function createRankingVideo(
               complexFilters.push(
                 `${mixInputs.join("")}amix=inputs=${
                   mixInputs.length
-                }:duration=longest:dropout_transition=0[outa]`
+                }:duration=longest:dropout_transition=0,aresample=44100:async=1[outa]`
               );
             } else {
-              complexFilters.push(`[a_silence]anull[outa]`);
+              complexFilters.push(`[a_silence]aresample=44100:async=1[outa]`);
             }
           }
 
@@ -717,6 +719,10 @@ export async function createRankingVideo(
               "aac",
               "-b:a",
               "320k",
+              "-ar",
+              "44100",
+              "-ac",
+              "2",
               "-shortest", // Crucial for ignoring extra audio length
             ])
             .output(outputPath)
@@ -757,6 +763,10 @@ export async function createRankingVideo(
           "aac",
           "-b:a",
           "320k",
+          "-ar",
+          "44100",
+          "-ac",
+          "2",
           "-pix_fmt",
           "yuv420p",
         ])
