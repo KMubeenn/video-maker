@@ -393,7 +393,9 @@ export async function createRankingVideo(
     const getSystemFont = (): string => {
       const isWindows = process.platform === "win32";
       if (isWindows) {
-        return "C\\\\:/Windows/Fonts/impact.ttf";
+        // For FFmpeg drawtext filter, the colon needs to be escaped with a single backslash
+        // In JavaScript, "\\" produces a single backslash in the output string
+        return "C\\:/Windows/Fonts/impact.ttf";
       }
       // Linux - use Liberation Sans Bold (installed via fonts-liberation package)
       return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf";
@@ -411,6 +413,25 @@ export async function createRankingVideo(
       const outputPath = outputPathNative.replace(/\\/g, "/");
 
       console.log(`Processing video ${video.rank}...`);
+      console.log(`  Input path: ${inputPath}`);
+      console.log(`  File exists: ${fs.existsSync(inputPath)}`);
+      console.log(`  Trim: start=${video.trimStart}, end=${video.trimEnd}`);
+      console.log(
+        `  Crop: x=${video.cropX}, y=${video.cropY}, w=${video.cropWidth}, h=${video.cropHeight}`
+      );
+      console.log(`  Meme sounds count: ${video.memeSounds?.length || 0}`);
+      if (video.memeSounds?.length) {
+        video.memeSounds.forEach((s, i) => {
+          console.log(
+            `    Sound ${i}: file=${s.file}, startTime=${s.startTime}, volume=${s.volume}`
+          );
+        });
+      }
+
+      // Validate video file exists before processing
+      if (!fs.existsSync(inputPath)) {
+        throw new Error(`Input video file not found: ${inputPath}`);
+      }
 
       // Pre-process meme sounds: Download remote URLs to local temp files
       const processedMemeSounds: typeof video.memeSounds = [];
@@ -738,13 +759,17 @@ export async function createRankingVideo(
             ])
             .output(outputPath)
             .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
+            .on("stderr", (stderrLine) =>
+              console.log(`FFmpeg stderr: ${stderrLine}`)
+            )
             .on("end", () => {
               console.log(`Successfully processed video ${video.rank}`);
               processedVideos.push(outputPath);
               resolve();
             })
-            .on("error", (err) => {
+            .on("error", (err, stdout, stderr) => {
               console.error(`Error processing video ${video.rank}:`, err);
+              console.error(`FFmpeg stderr output:\n${stderr}`);
               reject(err);
             })
             .run();
