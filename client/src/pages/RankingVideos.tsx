@@ -46,7 +46,7 @@ import {
   videoLibraryApi,
   type Video as VideoLibraryVideo,
 } from "../api/video-library.api";
-import { teamApi } from "../api/team.api";
+import { teamApi, type Team } from "../api/team.api";
 import { useAuth } from "../hooks/useAuth";
 import "./RankingVideos.css";
 
@@ -543,8 +543,10 @@ export default function RankingVideos() {
         try {
           const teams = await teamApi.list();
           const teamVideoPromises = teams
-            .filter((team) => team.id) // Only process teams with IDs
-            .map((team) => videoLibraryApi.list(team.id!).catch(() => []));
+            .filter((team: Team) => team.id) // Only process teams with IDs
+            .map((team: Team) =>
+              videoLibraryApi.list(team.id!).catch(() => [])
+            );
           const allTeamVideos = await Promise.all(teamVideoPromises);
           teamVideos = allTeamVideos.flat();
         } catch (err) {
