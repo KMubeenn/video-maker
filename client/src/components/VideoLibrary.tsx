@@ -2,14 +2,28 @@ import { useState, useEffect } from "react";
 import { videoLibraryApi, type Video } from "../api/video-library.api";
 import { VideoForm } from "./VideoForm";
 import { CSVImport } from "./CSVImport";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, FileUp, Edit, Trash2, ExternalLink, CheckSquare, Square } from "lucide-react";
+import {
+  Plus,
+  FileUp,
+  Edit,
+  Trash2,
+  ExternalLink,
+  CheckSquare,
+  Square,
+} from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
@@ -70,8 +84,13 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
 
   const handleBulkDelete = async () => {
     if (selectedVideos.size === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedVideos.size} video(s)?`)) return;
-    
+    if (
+      !confirm(
+        `Are you sure you want to delete ${selectedVideos.size} video(s)?`
+      )
+    )
+      return;
+
     try {
       const deletePromises = Array.from(selectedVideos).map((id) =>
         videoLibraryApi.delete(id).catch((err) => {
@@ -102,7 +121,9 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
     if (selectedVideos.size === filteredVideos.length) {
       setSelectedVideos(new Set());
     } else {
-      setSelectedVideos(new Set(filteredVideos.filter(v => v.id).map(v => v.id!)));
+      setSelectedVideos(
+        new Set(filteredVideos.filter((v) => v.id).map((v) => v.id!))
+      );
     }
   };
 
@@ -147,11 +168,13 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">{teamId ? "Team Videos" : "My Videos"}</h1>
+        <h1 className="text-3xl font-bold tracking-tight">
+          {teamId ? "Team Videos" : "My Videos"}
+        </h1>
         <div className="flex gap-2">
           {isSelectMode ? (
             <>
-              <Button 
+              <Button
                 onClick={handleSelectAll}
                 variant="outline"
                 className="transition-all duration-200 hover:bg-accent hover:border-primary/50 hover:shadow-md hover:scale-105"
@@ -163,7 +186,7 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
                 )}
                 Select All
               </Button>
-              <Button 
+              <Button
                 onClick={handleBulkDelete}
                 variant="destructive"
                 disabled={selectedVideos.size === 0}
@@ -172,7 +195,7 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Selected ({selectedVideos.size})
               </Button>
-              <Button 
+              <Button
                 onClick={() => {
                   setIsSelectMode(false);
                   setSelectedVideos(new Set());
@@ -185,7 +208,7 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
             </>
           ) : (
             <>
-              <Button 
+              <Button
                 onClick={() => setIsSelectMode(true)}
                 variant="outline"
                 className="transition-all duration-200 hover:bg-accent hover:border-primary/50 hover:shadow-md hover:scale-105"
@@ -193,15 +216,15 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
                 <CheckSquare className="mr-2 h-4 w-4" />
                 Select
               </Button>
-              <Button 
+              <Button
                 onClick={() => setShowForm(true)}
                 className="transition-all duration-200 hover:shadow-lg hover:shadow-primary/30 hover:scale-105"
               >
                 <Plus className="mr-2 h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
                 Add Video
               </Button>
-              <Button 
-                onClick={() => setShowCSVImport(true)} 
+              <Button
+                onClick={() => setShowCSVImport(true)}
                 variant="outline"
                 className="transition-all duration-200 hover:bg-accent hover:border-primary/50 hover:shadow-md hover:scale-105"
               >
@@ -255,20 +278,24 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filteredVideos.map((video) => (
-            <Card 
-              key={video.id} 
+            <Card
+              key={video.id}
               className={cn(
                 "transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-1 hover:border-primary/50 relative",
-                isSelectMode && selectedVideos.has(video.id || "") && "border-primary border-2",
+                isSelectMode &&
+                  selectedVideos.has(video.id || "") &&
+                  "border-primary border-2",
                 isSelectMode && "cursor-pointer"
               )}
-              onClick={() => isSelectMode && video.id && handleToggleSelect(video.id)}
+              onClick={() =>
+                isSelectMode && video.id && handleToggleSelect(video.id)
+              }
             >
               {isSelectMode && (
                 <div className="absolute top-3 left-3 z-10">
                   <Checkbox
                     checked={selectedVideos.has(video.id || "")}
-                    onCheckedChange={(checked) => {
+                    onCheckedChange={() => {
                       if (video.id) {
                         handleToggleSelect(video.id);
                       }
@@ -283,9 +310,28 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
                   {video.title || video.clip_url.substring(0, 50)}
                 </CardTitle>
                 <CardDescription className="flex items-center gap-2">
-                  <Badge variant="secondary" className="transition-all duration-200 hover:scale-105 hover:shadow-sm">{video.source_platform}</Badge>
-                  {video.first && <Badge variant="outline" className="transition-all duration-200 hover:scale-105 hover:shadow-sm">First</Badge>}
-                  {video.trim && <Badge variant="outline" className="transition-all duration-200 hover:scale-105 hover:shadow-sm">Trim</Badge>}
+                  <Badge
+                    variant="secondary"
+                    className="transition-all duration-200 hover:scale-105 hover:shadow-sm"
+                  >
+                    {video.source_platform}
+                  </Badge>
+                  {video.first && (
+                    <Badge
+                      variant="outline"
+                      className="transition-all duration-200 hover:scale-105 hover:shadow-sm"
+                    >
+                      First
+                    </Badge>
+                  )}
+                  {video.trim && (
+                    <Badge
+                      variant="outline"
+                      className="transition-all duration-200 hover:scale-105 hover:shadow-sm"
+                    >
+                      Trim
+                    </Badge>
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -296,13 +342,18 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
                     rel="noopener noreferrer"
                     className="text-sm text-primary hover:underline flex items-center gap-1 transition-all duration-200 hover:text-primary/80 hover:gap-2"
                   >
-                    View URL <ExternalLink className="h-3 w-3 transition-transform duration-200 hover:scale-110" />
+                    View URL{" "}
+                    <ExternalLink className="h-3 w-3 transition-transform duration-200 hover:scale-110" />
                   </a>
                 </div>
                 {video.tags && video.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {video.tags.map((tag, idx) => (
-                      <Badge key={idx} variant="outline" className="text-xs transition-all duration-200 hover:scale-105 hover:bg-accent hover:border-primary/50 cursor-default">
+                      <Badge
+                        key={idx}
+                        variant="outline"
+                        className="text-xs transition-all duration-200 hover:scale-105 hover:bg-accent hover:border-primary/50 cursor-default"
+                      >
                         {tag}
                       </Badge>
                     ))}
@@ -349,4 +400,3 @@ export function VideoLibrary({ teamId }: VideoLibraryProps) {
     </div>
   );
 }
-

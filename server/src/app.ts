@@ -20,6 +20,13 @@ app.use("/api/videos", videoLibraryRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/admin", adminRoutes);
 
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res
+    .status(200)
+    .json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
 // Existing routes
 app.use("/api/ranking", rankingRoutes);
 app.use("/api/upload", uploadRoutes);

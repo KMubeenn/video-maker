@@ -387,9 +387,20 @@ export async function createRankingVideo(
     const totalRankingHeight = totalVideos * rankingItemHeight;
     const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
 
-    // Font paths
-    const titleFont = "C\\:/Windows/Fonts/impact.ttf";
-    const rankingFont = "C\\:/Windows/Fonts/impact.ttf";
+    // Font paths - cross-platform support
+    // Windows: C:\Windows\Fonts\impact.ttf
+    // Linux/Docker: /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf
+    const getSystemFont = (): string => {
+      const isWindows = process.platform === "win32";
+      if (isWindows) {
+        return "C\\\\:/Windows/Fonts/impact.ttf";
+      }
+      // Linux - use Liberation Sans Bold (installed via fonts-liberation package)
+      return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf";
+    };
+
+    const titleFont = getSystemFont();
+    const rankingFont = getSystemFont();
 
     for (const video of options.videos) {
       const inputPath = path.resolve(video.filePath).replace(/\\/g, "/");
