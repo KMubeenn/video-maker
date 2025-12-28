@@ -3,13 +3,17 @@ import {
   generateFullPreview,
   uploadVideoFile,
   preparePreview,
-  type RankingVideoInput,
   type TextSegment,
 } from "../api/video.api";
 import { RichTextInput } from "../components/RichTextInput";
 import { RealtimePreview } from "../components/RealtimePreview";
 import { VideoEditor } from "../components/VideoEditor";
 import { type VideoMemeSound } from "../types/timeline";
+import {
+  type VideoInput,
+  type PreviewState,
+  VideoPreviewPanel,
+} from "../features/ranking";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,166 +53,6 @@ import {
 import { teamApi, type Team } from "../api/team.api";
 import { useAuth } from "../hooks/useAuth";
 import "./RankingVideos.css";
-
-interface VideoInput extends Omit<RankingVideoInput, "title" | "memeSounds"> {
-  id: number;
-  title: TextSegment[]; // Using TextSegment[] for format
-  // We use this to track the original full resource URL from backend if needed,
-  // but for now 'url' is the main one.
-  // 'url' in RankingVideoInput is the served URL.
-  memeSounds?: VideoMemeSound[];
-}
-
-// Single Preview State
-interface PreviewState {
-  isGenerating: boolean;
-  videoUrl: string | null;
-  error: string | null;
-  warnings?: {
-    message: string;
-    failedVideos: Array<{
-      url: string;
-      index: number;
-      error: string;
-      platform: string;
-    }>;
-  };
-}
-
-interface PreviewProps {
-  mainTitle: TextSegment[];
-  videos: VideoInput[];
-  width: number;
-  height: number;
-  previewState: PreviewState;
-  onGeneratePreview: () => void;
-}
-
-function VideoPreviewPanel({
-  mainTitle,
-  videos,
-  width,
-  height,
-  previewState,
-  onGeneratePreview,
-}: PreviewProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  const allVideosReady =
-    mainTitle.length > 0 &&
-    mainTitle[0].text.trim() !== "" &&
-    videos.every(
-      (v) => v.url && v.title.length > 0 && v.title[0].text.trim() !== ""
-    );
-
-  return (
-    <div className="live-preview-section">
-      <label className="section-label">
-        <span className="live-indicator"></span>
-        Full Preview - Complete FFmpeg Output
-        <span className="preview-dimensions">
-          ({width}×{height})
-        </span>
-      </label>
-
-      <div className="preview-container">
-        <div className="preview-frame">
-          <div className="preview-content">
-            {previewState.isGenerating ? (
-              <div className="preview-loading">
-                <div className="preview-spinner"></div>
-                <span>Generating full preview with FFmpeg...</span>
-                <span className="preview-note">
-                  Downloading all {videos.length} videos and creating
-                  concatenated output
-                </span>
-              </div>
-            ) : previewState.error ? (
-              <div className="preview-error">
-                <span className="error-icon">⚠️</span>
-                <span>{previewState.error}</span>
-                <button className="retry-btn" onClick={onGeneratePreview}>
-                  Retry
-                </button>
-              </div>
-            ) : previewState.videoUrl ? (
-              <video
-                ref={videoRef}
-                src={previewState.videoUrl}
-                className="preview-video-player"
-                controls
-                autoPlay
-                muted
-                loop
-                key={previewState.videoUrl}
-              />
-            ) : allVideosReady ? (
-              <div className="preview-waiting">
-                <span className="waiting-icon">🎬</span>
-                <span>Ready to generate full preview</span>
-                <span className="preview-note">
-                  This will download {videos.length} video
-                  {videos.length > 1 ? "s" : ""}, add overlays, and concatenate
-                  them
-                </span>
-                <button
-                  className="download-preview-btn"
-                  onClick={onGeneratePreview}
-                >
-                  Generate Full Preview
-                </button>
-              </div>
-            ) : (
-              <div className="preview-empty">
-                <span className="empty-icon">📹</span>
-                <span className="empty-text">
-                  {mainTitle.length === 0 || mainTitle[0].text.trim() === ""
-                    ? "Enter main title first"
-                    : videos.some(
-                        (v) =>
-                          v.title.length === 0 || v.title[0].text.trim() === ""
-                      )
-                    ? "Enter all video titles"
-                    : "Add all video URLs"}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Show warnings if any videos failed */}
-      {previewState.warnings && (
-        <div className="preview-warnings">
-          <div className="warning-header">
-            <span className="warning-icon">⚠️</span>
-            <strong>{previewState.warnings.message}</strong>
-          </div>
-          <div className="failed-videos-list">
-            {previewState.warnings.failedVideos.map((failure, idx) => (
-              <div key={idx} className="failed-video-item">
-                <span className="failed-video-rank">#{failure.index + 1}</span>
-                <div className="failed-video-details">
-                  <div className="failed-video-url" title={failure.url}>
-                    {failure.url.length > 50
-                      ? `${failure.url.substring(0, 50)}...`
-                      : failure.url}
-                  </div>
-                  <div className="failed-video-error">{failure.error}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="preview-hint">
-        👆 This shows the complete final video with all clips concatenated.
-        Generate to see the exact output!
-      </div>
-    </div>
-  );
-}
 
 export default function RankingVideos() {
   const { user } = useAuth();

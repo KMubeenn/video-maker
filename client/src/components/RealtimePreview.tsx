@@ -6,6 +6,7 @@ import {
   type TextOverlay,
   type VideoMemeSound,
 } from "../types/timeline";
+import { useDebounce } from "../hooks/useDebounce";
 import "./RealtimePreview.css";
 import { Pause, Play } from "lucide-react";
 
@@ -34,20 +35,6 @@ interface LoadedAsset {
   originalUrl: string; // The source URL (TikTok etc) used for keying
   duration: number;
   audioBuffer?: AudioBuffer;
-}
-
-// Custom hook for debouncing
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-  return debouncedValue;
 }
 
 // Helper: Normalize colors to match FFmpeg backend
