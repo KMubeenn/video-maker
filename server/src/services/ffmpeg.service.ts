@@ -622,14 +622,15 @@ export async function createRankingVideo(
           videoFilters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
 
           // Text Overlays
-          // Main Title - larger font with yellow border (no letter spacing for FFmpeg - causes alignment issues)
+          // Main Title - use segment fontSize or Medium (64px) as default
+          const mainTitleFontSize = options.mainTitle[0]?.fontSize || 64;
           const mainTitleFilters = createFormattedTextFilters(
             options.mainTitle,
             "(w-text_w)/2",
             180, // Centered vertically in 300px title area
             titleFont,
             "white",
-            72, // Increased font size from 52 to 72
+            mainTitleFontSize, // Use segment font size
             "yellow", // Yellow border
             4, // Border width
             0 // No letter spacing in FFmpeg (causes vertical alignment issues)
@@ -655,14 +656,16 @@ export async function createRankingVideo(
             );
 
             if (revealedRanks.has(rankNum) && videoInfo) {
+              // Use segment fontSize or Small (52px) as default
+              const videoTitleFontSize = videoInfo.title[0]?.fontSize || 52;
               const videoTitleFilters = createFormattedTextFilters(
                 videoInfo.title,
                 90,
                 yPos + 4,
                 rankingFont,
                 titleColor,
-                48,
-                "black", // Black border for ranking titles (was addBorder=true)
+                videoTitleFontSize, // Use segment font size
+                "black", // Black border for ranking titles
                 3
               );
               videoFilters.push(...videoTitleFilters);
