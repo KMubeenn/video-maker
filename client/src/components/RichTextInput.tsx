@@ -5,6 +5,7 @@ export interface TextSegment {
   text: string;
   color?: string;
   fontSize?: number;
+  hasBorder?: boolean; // Enable yellow border around text
 }
 
 interface RichTextInputProps {
@@ -23,7 +24,8 @@ export function RichTextInput({
   disabled = false,
 }: RichTextInputProps) {
   const [currentColor, setCurrentColor] = useState("white");
-  const [currentSize, setCurrentSize] = useState(52);
+  const [currentSize, setCurrentSize] = useState(64); // Default to Medium (64px)
+  const [currentBorder, setCurrentBorder] = useState(true); // Enable border by default
   const [editingText, setEditingText] = useState("");
   const [isWordMode, setIsWordMode] = useState(false);
 
@@ -39,21 +41,47 @@ export function RichTextInput({
 
     // In simple mode, always update (single segment)
     // This allows editing even if there are formatted segments in the background
-    onChange([{ text: newText, color: currentColor, fontSize: currentSize }]);
+    onChange([
+      {
+        text: newText,
+        color: currentColor,
+        fontSize: currentSize,
+        hasBorder: currentBorder,
+      },
+    ]);
   };
 
   // Apply color to entire text
   const applyColorToAll = (color: string) => {
     setCurrentColor(color);
     const text = editingText || getPlainText();
-    onChange([{ text, color, fontSize: currentSize }]);
+    onChange([
+      { text, color, fontSize: currentSize, hasBorder: currentBorder },
+    ]);
   };
 
   // Apply size to entire text
   const applySizeToAll = (size: number) => {
     setCurrentSize(size);
     const text = editingText || getPlainText();
-    onChange([{ text, color: currentColor, fontSize: size }]);
+    onChange([
+      { text, color: currentColor, fontSize: size, hasBorder: currentBorder },
+    ]);
+  };
+
+  // Toggle border on/off
+  const toggleBorder = () => {
+    const newBorder = !currentBorder;
+    setCurrentBorder(newBorder);
+    const text = editingText || getPlainText();
+    onChange([
+      {
+        text,
+        color: currentColor,
+        fontSize: currentSize,
+        hasBorder: newBorder,
+      },
+    ]);
   };
 
   // Split text into words for individual formatting
@@ -78,7 +106,8 @@ export function RichTextInput({
       segments.push({
         text: word,
         color: "white",
-        fontSize: 52,
+        fontSize: 64, // Default to Medium
+        hasBorder: currentBorder,
       });
 
       // Add a space after each word except the last one
@@ -86,7 +115,8 @@ export function RichTextInput({
         segments.push({
           text: " ",
           color: "white",
-          fontSize: 52,
+          fontSize: 64, // Default to Medium
+          hasBorder: currentBorder,
         });
       }
     });
@@ -182,27 +212,50 @@ export function RichTextInput({
           <span className="toolbar-label">Size:</span>
           <button
             className="toolbar-btn size-btn"
-            onClick={() => applySizeToAll(40)}
+            onClick={() => applySizeToAll(52)}
             disabled={disabled}
-            title="Small (40px)"
+            title="Small (52px)"
           >
             S
           </button>
           <button
             className="toolbar-btn size-btn"
-            onClick={() => applySizeToAll(52)}
+            onClick={() => applySizeToAll(64)}
             disabled={disabled}
-            title="Medium (52px)"
+            title="Medium (64px)"
           >
             M
           </button>
           <button
             className="toolbar-btn size-btn"
-            onClick={() => applySizeToAll(64)}
+            onClick={() => applySizeToAll(72)}
             disabled={disabled}
-            title="Large (64px)"
+            title="Large (72px)"
           >
             L
+          </button>
+        </div>
+
+        <div className="toolbar-group">
+          <span className="toolbar-label">Border:</span>
+          <button
+            className={`toolbar-btn border-btn ${
+              currentBorder ? "active" : ""
+            }`}
+            onClick={toggleBorder}
+            disabled={disabled}
+            title={
+              currentBorder
+                ? "Border enabled (click to disable)"
+                : "Border disabled (click to enable)"
+            }
+            style={{
+              background: currentBorder ? "#FFD700" : "#333",
+              color: currentBorder ? "black" : "#888",
+              border: currentBorder ? "2px solid #FFD700" : "2px solid #555",
+            }}
+          >
+            {currentBorder ? "✓ ON" : "✗ OFF"}
           </button>
         </div>
       </div>
@@ -249,7 +302,7 @@ export function RichTextInput({
                     disabled={disabled}
                     style={{
                       color: segment.color || "white",
-                      fontSize: `${((segment.fontSize || 52) / 52) * 1}rem`,
+                      fontSize: `${((segment.fontSize || 64) / 64) * 1}rem`,
                     }}
                   />
                   <div className="word-controls">
@@ -269,7 +322,7 @@ export function RichTextInput({
                       <option value="#2D9E6D">Green</option>
                     </select>
                     <select
-                      value={segment.fontSize || 52}
+                      value={segment.fontSize || 64}
                       onChange={(e) =>
                         updateSegment(index, {
                           fontSize: Number(e.target.value),
@@ -278,9 +331,9 @@ export function RichTextInput({
                       disabled={disabled}
                       className="word-size-select"
                     >
-                      <option value={40}>Small</option>
-                      <option value={52}>Medium</option>
-                      <option value={64}>Large</option>
+                      <option value={52}>Small</option>
+                      <option value={64}>Medium</option>
+                      <option value={72}>Large</option>
                     </select>
                   </div>
                 </div>
@@ -308,7 +361,7 @@ export function RichTextInput({
                 key={index}
                 style={{
                   color: segment.color || "white",
-                  fontSize: `${(segment.fontSize || 52) / 3}px`,
+                  fontSize: `${(segment.fontSize || 64) / 3}px`,
                   fontFamily: "Impact, 'Arial Black', sans-serif",
                 }}
               >

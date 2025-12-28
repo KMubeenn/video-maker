@@ -9,6 +9,7 @@ export interface TextSegment {
   text: string;
   color?: string;
   fontSize?: number;
+  hasBorder?: boolean; // Enable yellow border around text
 }
 
 // Estimate character width for Impact font with more accurate measurements
@@ -159,7 +160,9 @@ function createFormattedTextFilters(
   fontFile: string,
   defaultColor: string = "white",
   defaultFontSize: number = 52,
-  addBorder: boolean = false // Optional: add black border for visibility
+  borderColor: string | null = null, // Optional: border color (e.g., "black", "yellow", "#FFD700")
+  borderWidth: number = 3, // Border width in pixels
+  letterSpacing: number = 0 // Extra pixels between each character (0 = no spacing)
 ): string[] {
   // If it's a plain string, convert to single segment
   const textSegments =
@@ -178,11 +181,12 @@ function createFormattedTextFilters(
   if (isCentered) {
     // Split into lines if text is too wide (use 80% of video width for safety)
     // For 1080px wide video, max width = 850px (more conservative)
-    const maxWidth = 850;
+    const maxWidth = letterSpacing > 0 ? 900 : 850; // Slightly wider for letter spacing
     const lines = splitIntoLines(textSegments, maxWidth, defaultFontSize);
 
-    // Calculate line height
-    const lineHeight = defaultFontSize + 10; // Add 10px spacing between lines
+    // Calculate line height (more spacing if letter spacing is enabled)
+    const lineHeight =
+      letterSpacing > 0 ? defaultFontSize + 14 : defaultFontSize + 10;
 
     // Adjust base Y to center multiple lines vertically
     const totalHeight = lines.length * lineHeight;
@@ -252,35 +256,67 @@ function createFormattedTextFilters(
       // The ERROR is how `createRankingVideo` applies the box.
 
       for (const segment of lineSegments) {
-        // Escape special FFmpeg drawtext characters: single quotes, colons, backslashes
-        const escText = segment.text
-          .replace(/\\/g, "\\\\")
-          .replace(/'/g, "\\'")
-          .replace(/:/g, "\\:");
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
-        // Calculate x position
-        let xOffset = currentXOffset;
+        // Check if border should be shown:
+        // For black borders (ranking titles): always show regardless of text color
+        // For yellow borders (main title): skip on white text, respect hasBorder
+        const isBlackBorder = borderColor === "black";
+        const isWhiteColor =
+          color === "white" || color === "#ffffff" || color === "#fff";
+        const segmentHasBorder = segment.hasBorder !== false; // Default to true if undefined
+        const shouldShowBorder =
+          borderColor && (isBlackBorder || (segmentHasBorder && !isWhiteColor));
 
-        // Ensure text doesn't go off-screen
-        if (xOffset < -530) {
-          xOffset = -530;
+        const borderParams = shouldShowBorder
+          ? `:borderw=${borderWidth}:bordercolor=${borderColor}`
+          : "";
+
+        // If letter spacing is enabled, draw each character individually
+        if (letterSpacing > 0) {
+          for (const char of segment.text) {
+            // Escape special FFmpeg drawtext characters
+            const escChar = char
+              .replace(/\\/g, "\\\\")
+              .replace(/'/g, "\\'")
+              .replace(/:/g, "\\:");
+
+            let xOffset = currentXOffset;
+            if (xOffset < -530) {
+              xOffset = -530;
+            }
+            const xPos = `(w/2)${xOffset >= 0 ? "+" : ""}${Math.round(
+              xOffset
+            )}`;
+
+            filters.push(
+              `drawtext=fontfile='${fontFile}':text='${escChar}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${currentY}${borderParams}`
+            );
+
+            // Estimate character width and add letter spacing
+            const charWidth = estimateTextWidth(char, fontSize);
+            currentXOffset += charWidth + letterSpacing;
+          }
+        } else {
+          // Original behavior: draw entire segment at once
+          const escText = segment.text
+            .replace(/\\/g, "\\\\")
+            .replace(/'/g, "\\'")
+            .replace(/:/g, "\\:");
+
+          let xOffset = currentXOffset;
+          if (xOffset < -530) {
+            xOffset = -530;
+          }
+          const xPos = `(w/2)${xOffset >= 0 ? "+" : ""}${Math.round(xOffset)}`;
+
+          filters.push(
+            `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${currentY}${borderParams}`
+          );
+
+          currentXOffset += estimateTextWidth(segment.text, fontSize);
         }
-
-        const xPos = `(w/2)${xOffset >= 0 ? "+" : ""}${Math.round(xOffset)}`;
-
-        // No box here. Let caller handle or specialized logic.
-        // Actually, let's include the fix for the box in the NEXT step (createRankingVideo).
-        // For now, just fix the positioning logic ensuring standard rendering.
-
-        const borderParams = addBorder ? ":borderw=3:bordercolor=black" : "";
-        filters.push(
-          `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${xPos}:y=${currentY}${borderParams}`
-        );
-
-        // Move offset right by this segment's width
-        currentXOffset += estimateTextWidth(segment.text, fontSize);
       }
 
       currentY += lineHeight;
@@ -309,7 +345,19 @@ function createFormattedTextFilters(
         const color = normalizeColor(segment.color) || defaultColor;
         const fontSize = segment.fontSize || defaultFontSize;
 
-        const borderParams = addBorder ? ":borderw=3:bordercolor=black" : "";
+        // Check if border should be shown
+        // For black borders (ranking titles): always show regardless of text color
+        // For yellow borders (main title): skip on white text
+        const isBlackBorder = borderColor === "black";
+        const isWhiteColor =
+          color === "white" || color === "#ffffff" || color === "#fff";
+        const segmentHasBorder = segment.hasBorder !== false;
+        const shouldShowBorder =
+          borderColor && (isBlackBorder || (segmentHasBorder && !isWhiteColor));
+
+        const borderParams = shouldShowBorder
+          ? `:borderw=${borderWidth}:bordercolor=${borderColor}`
+          : "";
         filters.push(
           `drawtext=fontfile='${fontFile}':text='${escText}':fontsize=${fontSize}:fontcolor=${color}:x=${currentXOffset}:y=${currentY}${borderParams}`
         );
@@ -379,7 +427,7 @@ export async function createRankingVideo(
     const totalVideos = options.videos.length;
 
     // Layout constants
-    const titleHeight = 200;
+    const titleHeight = 300; // Increased from 200 for more title space
     const videoHeight = height - titleHeight;
     const rankingItemHeight = 200;
 
@@ -574,12 +622,17 @@ export async function createRankingVideo(
           videoFilters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
 
           // Text Overlays
-          // Main Title
+          // Main Title - larger font with yellow border (no letter spacing for FFmpeg - causes alignment issues)
           const mainTitleFilters = createFormattedTextFilters(
             options.mainTitle,
             "(w-text_w)/2",
-            90,
-            titleFont
+            180, // Centered vertically in 300px title area
+            titleFont,
+            "white",
+            72, // Increased font size from 52 to 72
+            "yellow", // Yellow border
+            4, // Border width
+            0 // No letter spacing in FFmpeg (causes vertical alignment issues)
           );
           videoFilters.push(...mainTitleFilters);
 
@@ -609,7 +662,8 @@ export async function createRankingVideo(
                 rankingFont,
                 titleColor,
                 48,
-                true
+                "black", // Black border for ranking titles (was addBorder=true)
+                3
               );
               videoFilters.push(...videoTitleFilters);
             }
