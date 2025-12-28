@@ -23,9 +23,10 @@ interface EmojiCacheConfig {
  * Default configuration
  */
 const DEFAULT_CONFIG: EmojiCacheConfig = {
-  cacheDir: path.resolve("assets", "emojis"),
-  twemojiSize: 72,
-  twemojiBaseUrl: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets",
+  cacheDir: path.resolve("assets", "emojis-apple"),
+  twemojiSize: 72, // Kept for compatibility but not used for URL construction
+  twemojiBaseUrl:
+    "https://raw.githubusercontent.com/cj1128/emoji-images/master/imgs",
 };
 
 /**
@@ -143,7 +144,7 @@ async function downloadEmoji(
   localPath: string,
   config: EmojiCacheConfig
 ): Promise<string> {
-  const url = `${config.twemojiBaseUrl}/${config.twemojiSize}x${config.twemojiSize}/${codepoint}.png`;
+  const url = `${config.twemojiBaseUrl}/${codepoint}.png`;
 
   console.log(`[EmojiCache] Downloading: ${url}`);
 
@@ -216,7 +217,7 @@ export function emojiToCodepoint(emoji: string): string {
 
   for (const char of emoji) {
     const codepoint = char.codePointAt(0);
-    if (codepoint !== undefined && codepoint !== 0xfe0f) {
+    if (codepoint !== undefined) {
       codepoints.push(codepoint.toString(16).toLowerCase());
     }
   }
@@ -232,7 +233,7 @@ export async function preloadCommonEmojis(): Promise<void> {
   const commonEmojis = [
     "1f44d",
     "1f44e",
-    "2764",
+    "2764-fe0f",
     "1f525",
     "1f4af",
     "1f389",

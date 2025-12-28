@@ -19,7 +19,7 @@ export function emojiToCodepoint(emoji: string): string {
 
   for (const char of emoji) {
     const codepoint = char.codePointAt(0);
-    if (codepoint !== undefined && codepoint !== 0xfe0f) {
+    if (codepoint !== undefined) {
       codepoints.push(codepoint.toString(16).toLowerCase());
     }
   }
@@ -32,7 +32,7 @@ export function emojiToCodepoint(emoji: string): string {
  */
 export function getTwemojiUrl(emoji: string): string {
   const codepoint = emojiToCodepoint(emoji);
-  return `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${codepoint}.png`;
+  return `https://raw.githubusercontent.com/cj1128/emoji-images/master/imgs/${codepoint}.png`;
 }
 
 /**
@@ -172,9 +172,10 @@ export function drawTextWithEmojis(
       const emojiImg = getCachedEmojiImage(segment.content);
       if (emojiImg) {
         // Draw emoji as image, scaled to match font size
-        const emojiSize = fontSize;
+        const emojiSize = fontSize * 1.25;
         // Adjust Y to align emoji baseline with text (emoji is drawn from top-left)
-        const emojiY = y - fontSize * 0.85; // Approximate baseline adjustment
+        // Shift up slightly more to account for larger size and center with text caps
+        const emojiY = y - fontSize * 0.95;
         ctx.drawImage(emojiImg, currentX, emojiY, emojiSize, emojiSize);
         currentX += emojiSize + letterSpacing;
       } else {
@@ -221,7 +222,7 @@ export function measureTextWithEmojis(
 
   for (const segment of segments) {
     if (segment.type === "emoji") {
-      totalWidth += fontSize + letterSpacing;
+      totalWidth += fontSize * 1.25 + letterSpacing;
     } else {
       for (const char of segment.content) {
         totalWidth += ctx.measureText(char).width + letterSpacing;
