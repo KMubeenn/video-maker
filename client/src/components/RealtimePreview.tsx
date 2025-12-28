@@ -493,11 +493,17 @@ export function RealtimePreview({
       const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
 
       if (overlay.type === "main-title") {
-        const fontSize = 72; // Increased from 52
+        // Get font size from first segment or use Medium (64px) as default
+        const defaultFontSize = overlay.text[0]?.fontSize || 64;
         const maxWidth = 900; // Slightly wider to accommodate letter spacing
-        const lineHeight = fontSize + 14; // More line spacing
+        const lineHeight = defaultFontSize + 14; // More line spacing
         const letterSpacing = 4; // Extra pixels between each character
-        const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
+        const lines = wrapTextStats(
+          ctx,
+          overlay.text,
+          maxWidth,
+          defaultFontSize
+        );
 
         let startY = 180; // Centered vertically in 300px title area (accounting for font baseline)
         if (lines.length > 1) {
@@ -508,7 +514,7 @@ export function RealtimePreview({
           // Calculate total line width including letter spacing
           let lineWidth = 0;
           line.forEach((s) => {
-            const segFontSize = s.fontSize || fontSize;
+            const segFontSize = s.fontSize || defaultFontSize;
             ctx.font = `${segFontSize}px ${fontBase}`;
             // Add letter spacing for each character
             for (const char of s.text) {
@@ -525,14 +531,14 @@ export function RealtimePreview({
           ctx.fillStyle = "rgba(0,0,0,0.6)";
           ctx.fillRect(
             currentX - 20,
-            currentY - fontSize,
+            currentY - defaultFontSize,
             lineWidth + 40,
-            fontSize + 32
+            defaultFontSize + 32
           );
 
           // Draw each segment with letter spacing
           line.forEach((seg) => {
-            const segFontSize = seg.fontSize || fontSize;
+            const segFontSize = seg.fontSize || defaultFontSize;
             ctx.font = `${segFontSize}px ${fontBase}`;
             const segColor = getSegColor(seg);
 
@@ -566,17 +572,23 @@ export function RealtimePreview({
           });
         });
       } else if (overlay.type === "ranking-title") {
-        const fontSize = 48;
+        // Get font size from first segment or use Small (52px) as default
+        const defaultFontSize = overlay.text[0]?.fontSize || 52;
         const maxWidth = 700;
-        const lineHeight = fontSize + 8;
-        const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
+        const lineHeight = defaultFontSize + 8;
+        const lines = wrapTextStats(
+          ctx,
+          overlay.text,
+          maxWidth,
+          defaultFontSize
+        );
 
         let currentY = overlay.y;
 
         lines.forEach((line) => {
           let currentX = typeof overlay.x === "number" ? overlay.x : 90;
           line.forEach((seg) => {
-            ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+            ctx.font = `${seg.fontSize || defaultFontSize}px ${fontBase}`;
             ctx.fillStyle = getSegColor(seg);
             ctx.strokeStyle = "black";
             ctx.lineWidth = 3;

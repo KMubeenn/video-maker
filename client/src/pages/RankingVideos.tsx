@@ -213,26 +213,26 @@ function VideoPreviewPanel({
 export default function RankingVideos() {
   const { user } = useAuth();
   const [mainTitle, setMainTitle] = useState<TextSegment[]>([
-    { text: "", color: "white", fontSize: 52 },
+    { text: "", color: "white", fontSize: 64 }, // Medium (64px) default for main title
   ]);
   const [videoCount, setVideoCount] = useState<3 | 4 | 5 | 6>(3);
   const [videos, setVideos] = useState<VideoInput[]>([
     {
       id: 1,
       url: "",
-      title: [{ text: "", color: "white", fontSize: 48 }],
+      title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default for video titles
       memeSounds: [],
     },
     {
       id: 2,
       url: "",
-      title: [{ text: "", color: "white", fontSize: 48 }],
+      title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default for video titles
       memeSounds: [],
     },
     {
       id: 3,
       url: "",
-      title: [{ text: "", color: "white", fontSize: 48 }],
+      title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default for video titles
       memeSounds: [],
     },
   ]);
@@ -267,7 +267,7 @@ export default function RankingVideos() {
         videos[i] || {
           id: i + 1,
           url: "",
-          title: [{ text: "", color: "white", fontSize: 48 }],
+          title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default
           memeSounds: [],
         }
       );
@@ -601,8 +601,8 @@ export default function RankingVideos() {
       if (dbVideo) {
         // Convert database video to VideoInput format
         const titleSegments: TextSegment[] = dbVideo.title
-          ? [{ text: dbVideo.title, color: "white", fontSize: 48 }]
-          : [{ text: "", color: "white", fontSize: 48 }];
+          ? [{ text: dbVideo.title, color: "white", fontSize: 52 }] // Small (52px) default
+          : [{ text: "", color: "white", fontSize: 52 }];
 
         newVideos.push({
           id: i + 1,
@@ -615,7 +615,7 @@ export default function RankingVideos() {
           videos[i] || {
             id: i + 1,
             url: "",
-            title: [{ text: "", color: "white", fontSize: 48 }],
+            title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default
             memeSounds: [],
           }
         );
