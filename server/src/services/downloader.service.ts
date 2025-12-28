@@ -4,6 +4,11 @@ import path from "path";
 import fs from "fs";
 import ytdl from "@distube/ytdl-core";
 import { videoCache } from "./cache.service.js";
+import {
+  downloadWithFallback,
+  isFallbackAvailable,
+  isFallbackSupported,
+} from "./fallback-downloader.service.js";
 
 const execPromise = promisify(exec);
 
@@ -96,11 +101,15 @@ function resolveCookiePath(platform: string): string | null {
 /**
  * Download video using yt-dlp (for TikTok and Instagram)
  * Note: Requires yt-dlp to be installed on the system
+ * Falls back to RapidAPI if yt-dlp fails and fallback is available
  */
 async function downloadWithYtDlp(
   url: string,
   outputPath: string
 ): Promise<void> {
+  const platform = detectPlatform(url);
+  let ytDlpError: Error | null = null;
+
   try {
     // Check if yt-dlp is installed
     try {
@@ -111,7 +120,6 @@ async function downloadWithYtDlp(
       );
     }
 
-    const platform = detectPlatform(url);
     const cookiePath = resolveCookiePath(platform);
 
     // Build command arguments
@@ -157,10 +165,43 @@ async function downloadWithYtDlp(
     if (!fs.existsSync(outputPath)) {
       throw new Error("Download completed but file was not created");
     }
+
+    // Success - return early
+    return;
   } catch (error: unknown) {
-    const err = error as Error;
-    throw new Error(`yt-dlp download failed: ${err.message}`);
+    ytDlpError = error as Error;
+    console.error(`yt-dlp failed: ${ytDlpError.message}`);
   }
+
+  // yt-dlp failed - try fallback if available
+  if (
+    isFallbackAvailable() &&
+    isFallbackSupported(url) &&
+    (platform === "tiktok" || platform === "instagram")
+  ) {
+    console.log(`Attempting fallback download for ${platform}...`);
+    try {
+      await downloadWithFallback(url, outputPath, platform);
+      console.log(`Fallback download successful for: ${url}`);
+      return;
+    } catch (fallbackError: unknown) {
+      const fbErr = fallbackError as Error;
+      console.error(`Fallback also failed: ${fbErr.message}`);
+      // Throw combined error showing both failures
+      throw new Error(
+        `yt-dlp failed: ${ytDlpError?.message}. Fallback also failed: ${fbErr.message}`
+      );
+    }
+  }
+
+  // Fallback not supported for this platform
+  if (!isFallbackSupported(url)) {
+    console.warn(
+      `No fallback available for this platform. Only TikTok is currently supported.`
+    );
+  }
+
+  throw new Error(`yt-dlp download failed: ${ytDlpError?.message}`);
 }
 
 /**
