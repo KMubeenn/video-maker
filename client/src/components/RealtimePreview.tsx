@@ -399,7 +399,7 @@ export function RealtimePreview({
         const isCurrentRank =
           rankNum === videos.findIndex((Ref) => Ref.id === playingVideo.id) + 1;
         const rankingItemHeight = 200;
-        const titleHeight = 200;
+        const titleHeight = 300; // Increased from 200 for more title space
         const videoHeight = height - titleHeight;
         const totalRankingHeight = videos.length * rankingItemHeight;
         const rankingStartY =
@@ -493,33 +493,76 @@ export function RealtimePreview({
       const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
 
       if (overlay.type === "main-title") {
-        const fontSize = 52;
-        const maxWidth = 850;
-        const lineHeight = fontSize + 10;
+        const fontSize = 72; // Increased from 52
+        const maxWidth = 900; // Slightly wider to accommodate letter spacing
+        const lineHeight = fontSize + 14; // More line spacing
+        const letterSpacing = 4; // Extra pixels between each character
         const lines = wrapTextStats(ctx, overlay.text, maxWidth, fontSize);
 
-        let startY = 90;
+        let startY = 180; // Centered vertically in 300px title area (accounting for font baseline)
         if (lines.length > 1) {
           startY -= ((lines.length - 1) * lineHeight) / 2;
         }
 
         lines.forEach((line, lineIdx) => {
+          // Calculate total line width including letter spacing
           let lineWidth = 0;
-          line.forEach(
-            (s) =>
-              (lineWidth += measureSegment(ctx, s.text, s.fontSize || fontSize))
-          );
+          line.forEach((s) => {
+            const segFontSize = s.fontSize || fontSize;
+            ctx.font = `${segFontSize}px ${fontBase}`;
+            // Add letter spacing for each character
+            for (const char of s.text) {
+              lineWidth += ctx.measureText(char).width + letterSpacing;
+            }
+          });
+          // Remove the last extra spacing
+          lineWidth -= letterSpacing;
+
           let currentX = (width - lineWidth) / 2;
           const currentY = startY + lineIdx * lineHeight;
 
+          // Draw background box with extra padding for letter spacing
           ctx.fillStyle = "rgba(0,0,0,0.6)";
-          ctx.fillRect(currentX - 12, currentY - 52, lineWidth + 24, 52 + 24);
+          ctx.fillRect(
+            currentX - 20,
+            currentY - fontSize,
+            lineWidth + 40,
+            fontSize + 32
+          );
 
+          // Draw each segment with letter spacing
           line.forEach((seg) => {
-            ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
-            ctx.fillStyle = getSegColor(seg);
-            ctx.fillText(seg.text, currentX, currentY);
-            currentX += ctx.measureText(seg.text).width;
+            const segFontSize = seg.fontSize || fontSize;
+            ctx.font = `${segFontSize}px ${fontBase}`;
+            const segColor = getSegColor(seg);
+
+            // Check if border should be shown:
+            // 1. hasBorder must be true (or undefined for backward compatibility)
+            // 2. Color must NOT be white (borders don't look good on white text)
+            const isWhiteColor =
+              segColor === "white" ||
+              segColor === "#ffffff" ||
+              segColor === "#fff" ||
+              segColor === "rgb(255, 255, 255)";
+            const shouldShowBorder = seg.hasBorder !== false && !isWhiteColor;
+
+            // Ensure all characters align to the same baseline
+            ctx.textBaseline = "alphabetic";
+
+            // Draw each character individually with spacing
+            for (const char of seg.text) {
+              // Only show yellow border if enabled and not white text
+              if (shouldShowBorder) {
+                ctx.strokeStyle = "#FFD700"; // Yellow border
+                ctx.lineWidth = 4;
+                ctx.lineJoin = "round";
+                ctx.strokeText(char, currentX, currentY);
+              }
+              // Fill text on top
+              ctx.fillStyle = segColor;
+              ctx.fillText(char, currentX, currentY);
+              currentX += ctx.measureText(char).width + letterSpacing;
+            }
           });
         });
       } else if (overlay.type === "ranking-title") {
@@ -598,7 +641,7 @@ export function RealtimePreview({
           videoEl.currentTime = clipTime;
         }
 
-        const titleHeight = 200;
+        const titleHeight = 300; // Increased from 200 for more title space
         const videoAreaHeight = height - titleHeight;
         const vw = videoEl.videoWidth;
         const vh = videoEl.videoHeight;

@@ -113,18 +113,43 @@ async function downloadWithYtDlp(
 
     const platform = detectPlatform(url);
     const cookiePath = resolveCookiePath(platform);
-    let cookieArgs = "";
 
+    // Build command arguments
+    const args: string[] = [];
+
+    // Add cookies if available
     if (cookiePath) {
       console.log(`Using cookies from: ${cookiePath}`);
-      cookieArgs = `--cookies "${cookiePath}"`;
+      args.push(`--cookies "${cookiePath}"`);
     } else {
       console.warn(
         `No cookies found for ${platform}. Downloads might fail. (Checked cookies-${platform}.txt and cookies.txt)`
       );
     }
 
-    const command = `yt-dlp ${cookieArgs} --format "best[ext=mp4]/best" --output "${outputPath}" --no-playlist "${url}"`;
+    // Add impersonation for TikTok to bypass bot detection
+    // Requires curl_cffi: pip install curl_cffi
+    if (platform === "tiktok") {
+      args.push("--impersonate chrome");
+      // Use extractor args to try mobile API which is sometimes more reliable
+      args.push(
+        '--extractor-args "tiktok:api_hostname=api16-normal-c-useast1a.tiktokv.com"'
+      );
+    }
+
+    // Add impersonation for Instagram as well
+    if (platform === "instagram") {
+      args.push("--impersonate chrome");
+    }
+
+    // Common arguments
+    args.push('--format "best[ext=mp4]/best"');
+    args.push(`--output "${outputPath}"`);
+    args.push("--no-playlist");
+    args.push("--no-check-certificate"); // Sometimes helps with SSL issues
+    args.push(`"${url}"`);
+
+    const command = `yt-dlp ${args.join(" ")}`;
 
     console.log(`Executing: ${command}`);
     await execPromise(command, { maxBuffer: 50 * 1024 * 1024 });
