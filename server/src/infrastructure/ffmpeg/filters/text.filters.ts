@@ -232,7 +232,7 @@ function createCenteredTextFiltersWithEmojis(
       const parts = parseTextForEmojis(segment.text);
       for (const part of parts) {
         if (part.type === "emoji") {
-          totalWidth += fontSize; // Emoji width = fontSize
+          totalWidth += fontSize * 1.25; // Emoji width = fontSize * 1.25
         } else {
           totalWidth += estimateTextWidth(part.content, fontSize);
         }
@@ -259,13 +259,16 @@ function createCenteredTextFiltersWithEmojis(
       for (const part of parts) {
         if (part.type === "emoji") {
           // Extract emoji info - don't create drawtext filter
+          const emojiSize = fontSize * 1.25;
+          const yOffset = (emojiSize - fontSize) / 2;
+
           emojis.push({
             codepoint: emojiToCodepoint(part.content),
             x: Math.round(currentX),
-            y: Math.round(currentY), // Aligned with text top
-            size: fontSize,
+            y: Math.round(currentY - yOffset), // Shift up to center larger emoji
+            size: emojiSize,
           });
-          currentX += fontSize;
+          currentX += emojiSize;
         } else {
           // Create drawtext filter for text
           const escText = escapeForFFmpeg(part.content);
@@ -328,13 +331,16 @@ function createLeftAlignedTextFiltersWithEmojis(
 
       for (const part of parts) {
         if (part.type === "emoji") {
+          const emojiSize = fontSize * 1.25;
+          const yOffset = (emojiSize - fontSize) / 2;
+
           emojis.push({
             codepoint: emojiToCodepoint(part.content),
             x: Math.round(currentX),
-            y: Math.round(currentY),
-            size: fontSize,
+            y: Math.round(currentY - yOffset),
+            size: emojiSize,
           });
-          currentX += fontSize;
+          currentX += emojiSize;
         } else {
           const escText = escapeForFFmpeg(part.content);
           if (escText.trim()) {
