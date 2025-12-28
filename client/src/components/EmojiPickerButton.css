@@ -1,0 +1,60 @@
+/* Emoji Picker Button Styles */
+
+.emoji-picker-container {
+  position: relative;
+  display: inline-flex;
+}
+
+.emoji-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.emoji-picker-trigger:hover:not(:disabled) {
+  background: #3a3a3a;
+  border-color: #666;
+  color: #fff;
+}
+
+.emoji-picker-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.emoji-picker-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  margin-top: 8px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+/* Ensure the picker appears above other content */
+.emoji-picker-popover aside {
+  border-radius: 8px !important;
+}
+
+/* Dark theme overrides for better integration */
+.emoji-picker-popover .epr-main {
+  border: 1px solid #444;
+}
+
+.emoji-picker-popover .epr-header {
+  border-bottom: 1px solid #333;
+}
+
+.emoji-picker-popover .epr-category-nav {
+  border-bottom: 1px solid #333;
+}

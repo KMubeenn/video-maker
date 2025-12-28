@@ -9,6 +9,12 @@ import {
 import { useDebounce } from "../hooks/useDebounce";
 import "./RealtimePreview.css";
 import { Pause, Play } from "lucide-react";
+import {
+  parseTextToSegments,
+  getCachedEmojiImage,
+  preloadEmojisFromText,
+  extractEmojis,
+} from "../services/emoji-image.service";
 
 interface RealtimePreviewProps {
   mainTitle: TextSegment[];
@@ -471,6 +477,32 @@ export function RealtimePreview({
     }
   }, [videos, mainTitle, width, height, buildTimeline]);
 
+  // Effect 3: Preload emoji images when text changes
+  useEffect(() => {
+    const allText: string[] = [];
+
+    // Collect text from main title
+    mainTitle.forEach((seg) => allText.push(seg.text));
+
+    // Collect text from video titles
+    videos.forEach((v) => {
+      v.title.forEach((seg) => allText.push(seg.text));
+    });
+
+    // Extract all emojis and preload their images
+    const allEmojis = allText.flatMap((text) => extractEmojis(text));
+    if (allEmojis.length > 0) {
+      Promise.all(allEmojis.map((emoji) => preloadEmojisFromText(emoji))).then(
+        () => {
+          // Force a re-render to show loaded emojis
+          if (timelineRef.current) {
+            buildTimeline();
+          }
+        }
+      );
+    }
+  }, [mainTitle, videos, buildTimeline]);
+
   // ... Render Loop and Audio Control ...
 
   const drawOverlay = useCallback(
@@ -542,19 +574,47 @@ export function RealtimePreview({
             // Ensure all characters align to the same baseline
             ctx.textBaseline = "alphabetic";
 
-            // Draw each character individually with spacing
-            for (const char of seg.text) {
-              // Only show yellow border if enabled and not white text
-              if (shouldShowBorder) {
-                ctx.strokeStyle = "#FFD700"; // Yellow border
-                ctx.lineWidth = 4;
-                ctx.lineJoin = "round";
-                ctx.strokeText(char, currentX, currentY);
+            // Parse text for emojis and draw accordingly
+            const parsed = parseTextToSegments(seg.text);
+            for (const part of parsed) {
+              if (part.type === "emoji") {
+                // Draw emoji as image
+                const emojiImg = getCachedEmojiImage(part.content);
+                if (emojiImg) {
+                  const emojiSize = segFontSize;
+                  // Adjust Y to align emoji with text baseline
+                  const emojiY = currentY - segFontSize * 0.85;
+                  ctx.drawImage(
+                    emojiImg,
+                    currentX,
+                    emojiY,
+                    emojiSize,
+                    emojiSize
+                  );
+                  currentX += emojiSize + letterSpacing;
+                } else {
+                  // Fallback: draw emoji as text (browser native)
+                  ctx.fillStyle = segColor;
+                  ctx.fillText(part.content, currentX, currentY);
+                  currentX +=
+                    ctx.measureText(part.content).width + letterSpacing;
+                }
+              } else {
+                // Draw each character individually with spacing
+                for (const char of part.content) {
+                  // Only show yellow border if enabled and not white text
+                  if (shouldShowBorder) {
+                    ctx.strokeStyle = "#FFD700"; // Yellow border
+                    ctx.lineWidth = 4;
+                    ctx.lineJoin = "round";
+                    ctx.strokeText(char, currentX, currentY);
+                  }
+                  // Fill text on top
+                  ctx.fillStyle = segColor;
+                  ctx.fillText(char, currentX, currentY);
+                  currentX += ctx.measureText(char).width + letterSpacing;
+                }
               }
-              // Fill text on top
-              ctx.fillStyle = segColor;
-              ctx.fillText(char, currentX, currentY);
-              currentX += ctx.measureText(char).width + letterSpacing;
             }
           });
         });
@@ -575,14 +635,45 @@ export function RealtimePreview({
         lines.forEach((line) => {
           let currentX = typeof overlay.x === "number" ? overlay.x : 90;
           line.forEach((seg) => {
-            ctx.font = `${seg.fontSize || defaultFontSize}px ${fontBase}`;
-            ctx.fillStyle = getSegColor(seg);
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 3;
-            ctx.lineJoin = "round";
-            ctx.strokeText(seg.text, currentX, currentY);
-            ctx.fillText(seg.text, currentX, currentY);
-            currentX += ctx.measureText(seg.text).width;
+            const segFontSize = seg.fontSize || defaultFontSize;
+            ctx.font = `${segFontSize}px ${fontBase}`;
+            const segColor = getSegColor(seg);
+
+            // Parse text for emojis
+            const parsed = parseTextToSegments(seg.text);
+            for (const part of parsed) {
+              if (part.type === "emoji") {
+                const emojiImg = getCachedEmojiImage(part.content);
+                if (emojiImg) {
+                  const emojiSize = segFontSize;
+                  const emojiY = currentY - segFontSize * 0.85;
+                  ctx.drawImage(
+                    emojiImg,
+                    currentX,
+                    emojiY,
+                    emojiSize,
+                    emojiSize
+                  );
+                  currentX += emojiSize;
+                } else {
+                  ctx.fillStyle = segColor;
+                  ctx.strokeStyle = "black";
+                  ctx.lineWidth = 3;
+                  ctx.lineJoin = "round";
+                  ctx.strokeText(part.content, currentX, currentY);
+                  ctx.fillText(part.content, currentX, currentY);
+                  currentX += ctx.measureText(part.content).width;
+                }
+              } else {
+                ctx.fillStyle = segColor;
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 3;
+                ctx.lineJoin = "round";
+                ctx.strokeText(part.content, currentX, currentY);
+                ctx.fillText(part.content, currentX, currentY);
+                currentX += ctx.measureText(part.content).width;
+              }
+            }
           });
           currentY += lineHeight;
         });

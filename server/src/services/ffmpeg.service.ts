@@ -16,7 +16,15 @@ import {
 } from "../utils/index.js";
 
 // Import FFmpeg filters from infrastructure
-import { createFormattedTextFilters } from "../infrastructure/ffmpeg/index.js";
+import {
+  createFormattedTextFilters,
+  createFormattedTextFiltersWithEmojis,
+  createEmojiOverlayFilters,
+  type EmojiOverlayConfig,
+} from "../infrastructure/ffmpeg/index.js";
+
+// Import emoji cache service
+import { getEmojiPath } from "./emoji.cache.js";
 
 // ... types
 export interface RankingVideoInput {
@@ -199,36 +207,214 @@ export async function createRankingVideo(
         }
       }
 
+      // Async metadata retrieval
+      const metadata = await new Promise<ffmpeg.FfprobeData>(
+        (resolve, reject) => {
+          ffmpeg.ffprobe(inputPath, (err, data) => {
+            if (err) reject(err);
+            else resolve(data);
+          });
+        }
+      );
+
+      const hasAudio = metadata.streams.some(
+        (stream) => stream.codec_type === "audio"
+      );
+
+      // Prepare text filters and emojis
+      const videoFilters: string[] = [];
+      const emojiConfigs: EmojiOverlayConfig[] = []; // Unified list of emojis to overlay
+
+      // 1. Video Processing Chain (Trim/Crop/Scale)
+      const trimStart =
+        video.trimStart !== undefined ? Number(video.trimStart) : undefined;
+      const trimEnd =
+        video.trimEnd !== undefined ? Number(video.trimEnd) : undefined;
+
+      let trimFilter = "";
+      if (
+        trimStart !== undefined &&
+        !isNaN(trimStart) &&
+        trimEnd !== undefined &&
+        !isNaN(trimEnd) &&
+        trimEnd > trimStart
+      ) {
+        trimFilter = `trim=start=${trimStart}:end=${trimEnd},setpts=PTS-STARTPTS`;
+      } else if (trimStart !== undefined && !isNaN(trimStart)) {
+        trimFilter = `trim=start=${trimStart},setpts=PTS-STARTPTS`;
+      }
+
+      if (trimFilter) videoFilters.push(trimFilter);
+
+      // User Crop
+      if (
+        video.cropWidth &&
+        video.cropHeight &&
+        video.cropWidth > 0 &&
+        video.cropHeight > 0
+      ) {
+        const cx = video.cropX ?? 0;
+        const cy = video.cropY ?? 0;
+        videoFilters.push(
+          `crop=${video.cropWidth}:${video.cropHeight}:${cx}:${cy}`
+        );
+      }
+
+      // Scale & Fill
+      videoFilters.push(
+        `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
+      );
+      videoFilters.push(
+        `crop=${width}:${videoHeight}:(iw-${width})/2:(ih-${videoHeight})/2`
+      );
+
+      // Pad
+      videoFilters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
+
+      // 2. Text Overlays with Emojis
+
+      // Main Title
+      const mainTitleFontSize = options.mainTitle[0]?.fontSize || 64;
+      const mainTitleRes = createFormattedTextFiltersWithEmojis(
+        options.mainTitle,
+        "(w-text_w)/2",
+        180,
+        titleFont,
+        "white",
+        mainTitleFontSize,
+        "yellow",
+        4,
+        0
+      );
+      videoFilters.push(...mainTitleRes.textFilters);
+
+      // Process emojis for main title
+      for (const e of mainTitleRes.emojis) {
+        try {
+          const emojiPath = await getEmojiPath(e.codepoint);
+          emojiConfigs.push({
+            emojiPath,
+            x: e.x,
+            y: e.y,
+            width: e.size,
+            height: e.size,
+            inputIndex: -1, // Will be set later
+          });
+        } catch (err) {
+          console.error(`Failed to load emoji ${e.codepoint}:`, err);
+        }
+      }
+
+      // Rankings
+      const revealedRanks = new Set<number>();
+      for (let j = 0; j <= options.videos.indexOf(video); j++) {
+        const revealedVideo = options.videos[j];
+        if (revealedVideo) revealedRanks.add(revealedVideo.rank);
+      }
+
+      for (let i = 0; i < totalVideos; i++) {
+        const rankNum = i + 1;
+        const yPos = rankingStartY + i * rankingItemHeight;
+        const videoInfo = options.videos.find((v) => v.rank === rankNum);
+        const numColor = rankNum === video.rank ? "yellow" : "white";
+        const titleColor = rankNum === video.rank ? "yellow" : "white";
+
+        videoFilters.push(
+          `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
+        );
+
+        if (revealedRanks.has(rankNum) && videoInfo) {
+          const videoTitleFontSize = videoInfo.title[0]?.fontSize || 52;
+          const videoTitleRes = createFormattedTextFiltersWithEmojis(
+            videoInfo.title,
+            90,
+            yPos + 4,
+            rankingFont,
+            titleColor,
+            videoTitleFontSize,
+            "black",
+            3
+          );
+          videoFilters.push(...videoTitleRes.textFilters);
+
+          // Process emojis for ranking title
+          for (const e of videoTitleRes.emojis) {
+            try {
+              const emojiPath = await getEmojiPath(e.codepoint);
+              emojiConfigs.push({
+                emojiPath,
+                x: e.x,
+                y: e.y,
+                width: e.size,
+                height: e.size,
+                inputIndex: -1, // Will be set later
+              });
+            } catch (err) {
+              console.error(`Failed to load emoji ${e.codepoint}:`, err);
+            }
+          }
+        }
+      }
+
+      // Execute FFmpeg
       await new Promise<void>((resolve, reject) => {
         const command = ffmpeg(inputPath);
+        const complexFilters: string[] = [];
 
-        ffmpeg.ffprobe(inputPath, (err, metadata) => {
-          if (err) {
-            reject(err);
-            return;
-          }
+        // Add Meme Sounds Inputs
+        const memeSounds = processedMemeSounds;
+        if (memeSounds.length > 0) {
+          memeSounds.forEach((sound) => {
+            const soundPath = path.resolve(sound.file);
+            command.input(soundPath);
+          });
+        }
 
-          const hasAudio = metadata.streams.some(
-            (stream) => stream.codec_type === "audio"
+        // Add Emoji Inputs
+        // Input Indices:
+        // 0: Video
+        // 1..memeSounds.length: Meme Sounds
+        // memeSounds.length+1..: Emojis
+        const startEmojiInputIndex = 1 + memeSounds.length;
+
+        emojiConfigs.forEach((cfg, idx) => {
+          cfg.inputIndex = startEmojiInputIndex + idx;
+          command.input(cfg.emojiPath).inputOption(["-loop 1"]);
+        });
+
+        // Construct Video Chain
+        // If emojis exist: [0:v]...[v_text] -> [v_text][e]overlay...[outv]
+        // If no emojis: [0:v]...[outv]
+
+        const hasEmojis = emojiConfigs.length > 0;
+        const textOutLabel = hasEmojis ? "v_text" : "outv";
+
+        const videoBaseChain = `[0:v]${videoFilters.join(
+          ","
+        )}[${textOutLabel}]`;
+        complexFilters.push(videoBaseChain);
+
+        if (hasEmojis) {
+          const emojiRes = createEmojiOverlayFilters(
+            emojiConfigs,
+            "v_text",
+            startEmojiInputIndex
           );
+          complexFilters.push(...emojiRes.scaleFilters);
+          complexFilters.push(...emojiRes.overlayFilters);
+          // Rename final output to [outv] for consistency
+          complexFilters.push(`[${emojiRes.finalOutputLabel}]null[outv]`);
+        }
 
-          // Build filter graph
-          const videoFilters: string[] = [];
-          const complexFilters: string[] = [];
+        // Audio Processing Chain
+        // ... (Keep existing audio logic) ...
+        let finalAudioMap = "[outa]";
+        let inputCount = 1; // Used for audio mixing - tracks current input index
 
-          // 1. Video Processing Chain
-          // [0:v] -> TRIM -> CROP (User) -> SCALE -> CROP (Fill) -> PAD -> [v_base]
-
-          // Trimming
-          const trimStart =
-            video.trimStart !== undefined ? Number(video.trimStart) : undefined;
-          const trimEnd =
-            video.trimEnd !== undefined ? Number(video.trimEnd) : undefined;
-          const hasTrim =
-            (trimStart !== undefined && !isNaN(trimStart)) ||
-            (trimEnd !== undefined && !isNaN(trimEnd));
-
-          let trimFilter = "";
+        if (hasAudio) {
+          // Audio filters logic...
+          const audioFilters: string[] = [];
+          // Reuse trim logic from original
           if (
             trimStart !== undefined &&
             !isNaN(trimStart) &&
@@ -236,248 +422,107 @@ export async function createRankingVideo(
             !isNaN(trimEnd) &&
             trimEnd > trimStart
           ) {
-            trimFilter = `trim=start=${trimStart}:end=${trimEnd},setpts=PTS-STARTPTS`;
+            complexFilters.push(
+              `[0:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
+            );
           } else if (trimStart !== undefined && !isNaN(trimStart)) {
-            trimFilter = `trim=start=${trimStart},setpts=PTS-STARTPTS`;
-          }
-
-          if (trimFilter) videoFilters.push(trimFilter);
-
-          // User Crop
-          if (
-            video.cropWidth &&
-            video.cropHeight &&
-            video.cropWidth > 0 &&
-            video.cropHeight > 0
-          ) {
-            const cx = video.cropX ?? 0;
-            const cy = video.cropY ?? 0;
-            videoFilters.push(
-              `crop=${video.cropWidth}:${video.cropHeight}:${cx}:${cy}`
+            complexFilters.push(
+              `[0:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
+            );
+          } else {
+            complexFilters.push(
+              `[0:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
             );
           }
-
-          // Scale & Fill
-          videoFilters.push(
-            `scale=${width}:${videoHeight}:force_original_aspect_ratio=increase`
-          );
-          videoFilters.push(
-            `crop=${width}:${videoHeight}:(iw-${width})/2:(ih-${videoHeight})/2`
-          );
-
-          // Pad
-          videoFilters.push(`pad=${width}:${height}:0:${titleHeight}:black`);
-
-          // Text Overlays
-          // Main Title - use segment fontSize or Medium (64px) as default
-          const mainTitleFontSize = options.mainTitle[0]?.fontSize || 64;
-          const mainTitleFilters = createFormattedTextFilters(
-            options.mainTitle,
-            "(w-text_w)/2",
-            180, // Centered vertically in 300px title area
-            titleFont,
-            "white",
-            mainTitleFontSize, // Use segment font size
-            "yellow", // Yellow border
-            4, // Border width
-            0 // No letter spacing in FFmpeg (causes vertical alignment issues)
-          );
-          videoFilters.push(...mainTitleFilters);
-
-          // Rankings
-          const revealedRanks = new Set<number>();
-          for (let j = 0; j <= options.videos.indexOf(video); j++) {
-            const revealedVideo = options.videos[j];
-            if (revealedVideo) revealedRanks.add(revealedVideo.rank);
-          }
-
-          for (let i = 0; i < totalVideos; i++) {
-            const rankNum = i + 1;
-            const yPos = rankingStartY + i * rankingItemHeight;
-            const videoInfo = options.videos.find((v) => v.rank === rankNum);
-            const numColor = rankNum === video.rank ? "yellow" : "white";
-            const titleColor = rankNum === video.rank ? "yellow" : "white";
-
-            videoFilters.push(
-              `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
-            );
-
-            if (revealedRanks.has(rankNum) && videoInfo) {
-              // Use segment fontSize or Small (52px) as default
-              const videoTitleFontSize = videoInfo.title[0]?.fontSize || 52;
-              const videoTitleFilters = createFormattedTextFilters(
-                videoInfo.title,
-                90,
-                yPos + 4,
-                rankingFont,
-                titleColor,
-                videoTitleFontSize, // Use segment font size
-                "black", // Black border for ranking titles
-                3
-              );
-              videoFilters.push(...videoTitleFilters);
-            }
-          }
-
-          // Combine all video filters into one chain
-          const videoChain = `[0:v]${videoFilters.join(",")}[outv]`;
-          complexFilters.push(videoChain);
-
-          // 2. Audio Processing Chain
-          let finalAudioMap = "[outa]"; // Default output label
-
-          // Helper to add audio inputs
-          let inputCount = 1; // 0 is main video
-          const memeSounds = processedMemeSounds;
 
           if (memeSounds.length > 0) {
+            const mixInputs = ["[a_trimmed]"];
             memeSounds.forEach((sound) => {
-              // Resolve absolutely
-              const soundPath = path.resolve(sound.file);
-              command.input(soundPath);
+              const delayMs = Math.round(sound.startTime * 1000);
+              const volume = sound.volume || 1.0;
+              complexFilters.push(
+                `[${inputCount}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
+              );
+              mixInputs.push(`[delayed${inputCount}]`);
+              inputCount++;
             });
-          }
-
-          if (hasAudio) {
-            const audioFilters: string[] = [];
-
-            // Audio Trim
-            if (
-              trimStart !== undefined &&
-              !isNaN(trimStart) &&
-              trimEnd !== undefined &&
-              !isNaN(trimEnd) &&
-              trimEnd > trimStart
-            ) {
-              complexFilters.push(
-                `[0:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
-              );
-            } else if (trimStart !== undefined && !isNaN(trimStart)) {
-              complexFilters.push(
-                `[0:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
-              );
-            } else {
-              // Just copy label but ensure sample rate and channels match
-              complexFilters.push(
-                `[0:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp[a_trimmed]`
-              );
-            }
-
-            // Mixing
-            if (memeSounds.length > 0) {
-              const mixInputs = ["[a_trimmed]"];
-
-              memeSounds.forEach((sound) => {
-                const delayMs = Math.round(sound.startTime * 1000);
-                const volume = sound.volume || 1.0;
-
-                // Input index for this sound is `inputCount`
-                complexFilters.push(
-                  `[${inputCount}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
-                );
-                mixInputs.push(`[delayed${inputCount}]`);
-                inputCount++;
-              });
-
-              // Apply amix
-              // duration=first ensures result length matches the video clip (assuming a_trimmed matches video duration)
-              complexFilters.push(
-                `${mixInputs.join("")}amix=inputs=${
-                  mixInputs.length
-                }:duration=first:dropout_transition=0,aresample=44100:async=1[outa]`
-              );
-            } else {
-              // No mixing, just pass through (but ensure consistent rate/sync)
-              complexFilters.push(`[a_trimmed]aresample=44100:async=1[outa]`);
-            }
-          } else {
-            // No source audio - generate silence matching video duration
-            // But we don't easily know video duration here after trim without calculation.
-            // Alternative: mix meme sounds with a generated nullsrc.
-            // But amix duration=first would make it infinite or zero?
-            // Safer: Use 'shortest' in output options OR trim the nullsrc?
-            // Actually, if we use [outv] (video) as reference... no, audio generation is independent.
-
-            // Strategy:
-            // 1. Generate anullsrc.
-            // 2. Mix with meme sounds (if any).
-            // 3. For the output, use -shortest. This will cut audio to video length.
 
             complexFilters.push(
-              `anullsrc=channel_layout=stereo:sample_rate=44100[a_silence]`
+              `${mixInputs.join("")}amix=inputs=${
+                mixInputs.length
+              }:duration=first:dropout_transition=0,aresample=44100:async=1[outa]`
             );
-
-            if (memeSounds.length > 0) {
-              const mixInputs = ["[a_silence]"];
-              memeSounds.forEach((sound) => {
-                const delayMs = Math.round(sound.startTime * 1000);
-                const volume = sound.volume || 1.0;
-
-                complexFilters.push(
-                  `[${inputCount}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
-                );
-                mixInputs.push(`[delayed${inputCount}]`);
-                inputCount++;
-              });
-
-              // For silence base, 'duration=first' on amix is DANGEROUS because silence is infinite.
-              // We should use 'duration=longest' but that might extend beyond video.
-              // OR: We rely on `-shortest` in output options to cut everything.
-              complexFilters.push(
-                `${mixInputs.join("")}amix=inputs=${
-                  mixInputs.length
-                }:duration=longest:dropout_transition=0,aresample=44100:async=1[outa]`
-              );
-            } else {
-              complexFilters.push(`[a_silence]aresample=44100:async=1[outa]`);
-            }
+          } else {
+            complexFilters.push(`[a_trimmed]aresample=44100:async=1[outa]`);
           }
+        } else {
+          // No Audio
+          complexFilters.push(
+            `anullsrc=channel_layout=stereo:sample_rate=44100[a_silence]`
+          );
 
-          // Execute
-          command
-            .complexFilter(complexFilters)
-            .outputOptions([
-              "-map",
-              "[outv]",
-              "-map",
-              "[outa]",
-              "-c:v",
-              "libx264",
-              "-preset",
-              "fast",
-              "-crf",
-              "23",
-              "-r",
-              "30",
-              "-pix_fmt",
-              "yuv420p",
-              "-c:a",
-              "aac",
-              "-b:a",
-              "320k",
-              "-ar",
-              "44100",
-              "-ac",
-              "2",
-              "-shortest", // Crucial for ignoring extra audio length
-            ])
-            .output(outputPath)
-            .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
-            .on("stderr", (stderrLine) =>
-              console.log(`FFmpeg stderr: ${stderrLine}`)
-            )
-            .on("end", () => {
-              console.log(`Successfully processed video ${video.rank}`);
-              processedVideos.push(outputPath);
-              resolve();
-            })
-            .on("error", (err, stdout, stderr) => {
-              console.error(`Error processing video ${video.rank}:`, err);
-              console.error(`FFmpeg stderr output:\n${stderr}`);
-              reject(err);
-            })
-            .run();
-        });
+          if (memeSounds.length > 0) {
+            const mixInputs = ["[a_silence]"];
+            memeSounds.forEach((sound) => {
+              const delayMs = Math.round(sound.startTime * 1000);
+              const volume = sound.volume || 1.0;
+              complexFilters.push(
+                `[${inputCount}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${volume},adelay=${delayMs}|${delayMs}[delayed${inputCount}]`
+              );
+              mixInputs.push(`[delayed${inputCount}]`);
+              inputCount++;
+            });
+            complexFilters.push(
+              `${mixInputs.join("")}amix=inputs=${
+                mixInputs.length
+              }:duration=longest:dropout_transition=0,aresample=44100:async=1[outa]`
+            );
+          } else {
+            complexFilters.push(`[a_silence]aresample=44100:async=1[outa]`);
+          }
+        }
+
+        command
+          .complexFilter(complexFilters)
+          .outputOptions([
+            "-map",
+            "[outv]",
+            "-map",
+            "[outa]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-r",
+            "30",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "320k",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-shortest",
+          ])
+          .output(outputPath)
+          .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
+          .on("stderr", (line) => console.log(`FFmpeg stderr: ${line}`))
+          .on("end", () => {
+            console.log(`Successfully processed video ${video.rank}`);
+            processedVideos.push(outputPath);
+            resolve();
+          })
+          .on("error", (err, stdout, stderr) => {
+            console.error(`Error processing video ${video.rank}:`, err);
+            console.error(`FFmpeg stderr output:\n${stderr}`);
+            reject(err);
+          })
+          .run();
       });
     }
 

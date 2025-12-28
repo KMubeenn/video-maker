@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import "./RichTextInput.css";
+import { EmojiPickerButton } from "./EmojiPickerButton";
 
 export interface TextSegment {
   text: string;
@@ -30,6 +31,7 @@ export function RichTextInput({
   const [currentBorder, setCurrentBorder] = useState(true); // Enable border by default
   const [editingText, setEditingText] = useState("");
   const [isWordMode, setIsWordMode] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Get plain text from segments
   const getPlainText = () => {
@@ -141,6 +143,37 @@ export function RichTextInput({
     const fullText = getPlainText();
     setEditingText(fullText);
     // Don't call onChange - keep the segments intact for preview!
+  };
+
+  // Handle emoji insertion at cursor position
+  const handleEmojiInsert = (emoji: string) => {
+    const textarea = textareaRef.current;
+    const currentText = editingText || getPlainText();
+
+    let newText: string;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      newText = currentText.slice(0, start) + emoji + currentText.slice(end);
+
+      // Restore cursor position after emoji
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+      }, 0);
+    } else {
+      newText = currentText + emoji;
+    }
+
+    setEditingText(newText);
+    onChange([
+      {
+        text: newText,
+        color: currentColor,
+        fontSize: currentSize,
+        hasBorder: currentBorder,
+      },
+    ]);
   };
 
   return (
@@ -262,12 +295,21 @@ export function RichTextInput({
             </button>
           </div>
         )}
+
+        {/* Emoji Picker */}
+        <div className="toolbar-group">
+          <EmojiPickerButton
+            onEmojiSelect={handleEmojiInsert}
+            disabled={disabled || isWordMode}
+          />
+        </div>
       </div>
 
       {!isWordMode ? (
         <>
           {/* Simple text editor mode */}
           <textarea
+            ref={textareaRef}
             className="rich-text-editor-simple"
             value={editingText || getPlainText()}
             onChange={handleTextChange}
