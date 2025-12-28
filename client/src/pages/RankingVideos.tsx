@@ -508,6 +508,7 @@ export default function RankingVideos() {
               onChange={setMainTitle}
               placeholder="e.g., Top 3 Most Viral TikToks of 2024"
               disabled={false}
+              mainTitle
             />
           </div>
 
@@ -599,7 +600,7 @@ export default function RankingVideos() {
                     <Badge
                       variant={hasFailed ? "destructive" : "default"}
                       className={cn(
-                        "rank-badge min-w-[40px] h-10 text-lg font-bold flex items-center justify-center",
+                        "rank-badge min-w-10 h-10 text-lg font-bold flex items-center justify-center",
                         hasFailed && "error"
                       )}
                     >
@@ -607,14 +608,16 @@ export default function RankingVideos() {
                     </Badge>
                     <div className="video-inputs">
                       <div className="flex items-center gap-2">
-                        <div
-                          className={cn(
-                            "input-icon flex items-center justify-center",
-                            hasFailed && "error"
-                          )}
-                        >
-                          {hasFailed ? "⚠️" : getPlatformIcon(video.url)}
-                        </div>
+                        {hasFailed && (
+                          <div
+                            className={cn(
+                              "input-icon flex items-center justify-center",
+                              hasFailed && "error"
+                            )}
+                          >
+                            "⚠️"
+                          </div>
+                        )}
                         <Input
                           type="url"
                           className={cn(

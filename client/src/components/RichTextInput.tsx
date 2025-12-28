@@ -14,6 +14,7 @@ interface RichTextInputProps {
   placeholder?: string;
   label?: string;
   disabled?: boolean;
+  mainTitle?: boolean;
 }
 
 export function RichTextInput({
@@ -22,6 +23,7 @@ export function RichTextInput({
   placeholder = "Enter text...",
   label,
   disabled = false,
+  mainTitle = false,
 }: RichTextInputProps) {
   const [currentColor, setCurrentColor] = useState("white");
   const [currentSize, setCurrentSize] = useState(64); // Default to Medium (64px)
@@ -142,7 +144,7 @@ export function RichTextInput({
   };
 
   return (
-    <div className="rich-text-input">
+    <div className="rich-text-input w-full">
       {label && <label className="rich-text-label">{label}</label>}
 
       <div className="rich-text-toolbar">
@@ -236,33 +238,30 @@ export function RichTextInput({
           </button>
         </div>
 
-        <div className="toolbar-group">
-          <span className="toolbar-label">Border:</span>
-          <button
-            className={`toolbar-btn border-btn ${
-              currentBorder ? "active" : ""
-            }`}
-            onClick={toggleBorder}
-            disabled={disabled}
-            title={
-              currentBorder
-                ? "Border enabled (click to disable)"
-                : "Border disabled (click to enable)"
-            }
-            style={{
-              background: currentBorder ? "#FFD700" : "#333",
-              color: currentBorder ? "black" : "#888",
-              border: currentBorder ? "2px solid #FFD700" : "2px solid #555",
-            }}
-          >
-            {currentBorder ? "✓ ON" : "✗ OFF"}
-          </button>
-        </div>
-      </div>
-
-      <div className="rich-text-instructions">
-        💡 <strong>Tip:</strong> Type your text, then click "Split into Words"
-        to format individual words with different colors/sizes
+        {mainTitle && (
+          <div className="toolbar-group">
+            <span className="toolbar-label">Border:</span>
+            <button
+              className={`toolbar-btn min-w-14! border-btn ${
+                currentBorder ? "active" : ""
+              }`}
+              onClick={toggleBorder}
+              disabled={disabled}
+              title={
+                currentBorder
+                  ? "Border enabled (click to disable)"
+                  : "Border disabled (click to enable)"
+              }
+              style={{
+                background: currentBorder ? "#FFD700" : "#333",
+                color: currentBorder ? "black" : "#888",
+                border: currentBorder ? "2px solid #FFD700" : "2px solid #555",
+              }}
+            >
+              {currentBorder ? "ON" : "OFF"}
+            </button>
+          </div>
+        )}
       </div>
 
       {!isWordMode ? (
