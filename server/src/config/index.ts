@@ -3,3 +3,4 @@
  */
 export * from "./paths.js";
 export { supabaseAdmin } from "./supabase.js";
+export * from "./cleanup.config.js";
