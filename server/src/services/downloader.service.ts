@@ -16,6 +16,7 @@ export interface DownloadResult {
   filePath: string;
   platform: string;
   originalUrl: string;
+  index: number;
 }
 
 export interface DownloadError {
@@ -258,6 +259,7 @@ export async function downloadVideo(
       filePath: outputPath,
       platform,
       originalUrl: url,
+      index,
     };
   } catch (error: unknown) {
     const err = error as Error;
@@ -299,6 +301,7 @@ export async function downloadMultipleVideos(
           filePath: cachedPath,
           platform,
           originalUrl: url,
+          index: i,
         });
         continue;
       }

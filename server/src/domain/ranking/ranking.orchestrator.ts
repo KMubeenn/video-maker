@@ -110,9 +110,7 @@ function prepareRankingInputs(
   urls: string[]
 ): RankingVideoInput[] {
   return downloadResults.successful.map((downloaded) => {
-    const originalIndex = urls.findIndex(
-      (url) => url === downloaded.originalUrl
-    );
+    const originalIndex = downloaded.index;
     const originalVideo = videos[originalIndex];
 
     return {
