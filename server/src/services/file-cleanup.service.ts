@@ -312,6 +312,17 @@ function cleanFolder(
 }
 
 /**
+ * Protected directory names that should never be deleted
+ * even if they become empty (e.g., cache directories)
+ */
+const PROTECTED_DIRECTORIES = new Set([
+  "cache", // Video cache directory - must persist
+  "temp", // Temporary files directory
+  "emojis", // Emoji assets
+  "emojis-apple", // Apple emoji assets
+]);
+
+/**
  * Clean empty directories left after file cleanup
  */
 function cleanEmptyDirectories(folderPath: string): number {
@@ -325,6 +336,12 @@ function cleanEmptyDirectories(folderPath: string): number {
       if (!entry.isDirectory()) continue;
 
       const dirPath = path.join(absolutePath, entry.name);
+
+      // Skip protected directories entirely - don't recurse into them
+      // and never delete them even if empty
+      if (PROTECTED_DIRECTORIES.has(entry.name.toLowerCase())) {
+        continue;
+      }
 
       // Recursively clean subdirectories first
       cleaned += cleanEmptyDirectories(dirPath);

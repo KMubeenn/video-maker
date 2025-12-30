@@ -44,9 +44,7 @@ export async function preparePreview(req: Request, res: Response) {
     // Get metadata for each downloaded video
     const readyVideos = await Promise.all(
       downloadResults.successful.map(async (downloaded) => {
-        const originalIndex = urls.findIndex(
-          (url) => url === downloaded.originalUrl
-        );
+        const originalIndex = downloaded.index;
         const originalId = videos[originalIndex]?.id;
 
         try {
@@ -209,9 +207,7 @@ export async function createRanking(req: Request, res: Response) {
     // Prepare ranking video inputs (maintaining original order with successful downloads only)
     const rankingInputs = downloadResults.successful.map((downloaded) => {
       // Find the original index of this video
-      const originalIndex = urls.findIndex(
-        (url) => url === downloaded.originalUrl
-      );
+      const originalIndex = downloaded.index;
       const originalVideo = videos[originalIndex];
       return {
         filePath: downloaded.filePath,
@@ -391,9 +387,7 @@ export async function generateFullPreview(req: Request, res: Response) {
     // Prepare ranking video inputs (maintaining original order with successful downloads only)
     const rankingInputs = downloadResults.successful.map((downloaded) => {
       // Find the original index of this video
-      const originalIndex = urls.findIndex(
-        (url) => url === downloaded.originalUrl
-      );
+      const originalIndex = downloaded.index;
       const originalVideo = videos[originalIndex];
       return {
         filePath: downloaded.filePath,

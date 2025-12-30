@@ -10,13 +10,25 @@ interface CacheEntry {
 
 class VideoCache {
   private cache: Map<string, CacheEntry> = new Map();
-  private cacheDir: string = path.join("uploads", "cache");
+  private cacheDir: string;
   private maxAge: number = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
   constructor() {
+    // Use absolute path to avoid relative path issues
+    this.cacheDir = path.resolve(process.cwd(), "uploads", "cache");
+    console.log(`[VideoCache] Cache directory: ${this.cacheDir}`);
+
     // Create cache directory if it doesn't exist
+    this.ensureCacheDir();
+  }
+
+  /**
+   * Ensure the cache directory exists
+   */
+  private ensureCacheDir(): void {
     if (!fs.existsSync(this.cacheDir)) {
       fs.mkdirSync(this.cacheDir, { recursive: true });
+      console.log(`[VideoCache] Created cache directory: ${this.cacheDir}`);
     }
   }
 
@@ -71,6 +83,9 @@ class VideoCache {
    * Add a video to cache
    */
   set(url: string, filePath: string): void {
+    // Ensure cache directory exists before copying
+    this.ensureCacheDir();
+
     const key = this.getCacheKey(url);
 
     // Move file to cache directory if not already there
@@ -81,6 +96,8 @@ class VideoCache {
     if (filePath !== cachePath) {
       if (fs.existsSync(filePath)) {
         fs.copyFileSync(filePath, cachePath);
+      } else {
+        console.warn(`[VideoCache] Source file does not exist: ${filePath}`);
       }
     }
 
