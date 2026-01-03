@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth.routes.js";
 import videoLibraryRoutes from "./routes/video-library.routes.js";
 import teamRoutes from "./routes/team.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import downloadRoutes from "./routes/download.routes.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.get("/api/health", (req, res) => {
 // Existing routes
 app.use("/api/ranking", rankingRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/download", downloadRoutes);
 app.use("/outputs", express.static("outputs"));
 app.use("/uploads", express.static("uploads"));
 

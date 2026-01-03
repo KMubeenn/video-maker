@@ -9,11 +9,18 @@ import type { RankingVideoInput } from "../../api/video.api";
  * Extended VideoInput for the ranking feature.
  * Includes all fields from RankingVideoInput plus UI-specific state.
  */
-export interface VideoInput
-  extends Omit<RankingVideoInput, "title" | "memeSounds"> {
+export interface VideoInput {
   id: number;
+  url: string;
   title: TextSegment[];
+  trimStart?: number;
+  trimEnd?: number;
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
   memeSounds?: VideoMemeSound[];
+  localPath?: string; // Downloaded video path for Remotion
 }
 
 /**
