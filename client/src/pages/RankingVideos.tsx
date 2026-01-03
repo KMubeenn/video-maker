@@ -14,6 +14,10 @@ import {
   type PreviewState,
   VideoPreviewPanel,
 } from "../features/ranking";
+import { Player } from "@remotion/player";
+import { RankingVideoTemplate } from "../remotion/RankingVideoTemplate";
+import { convertToRemotionComposition } from "../features/ranking/utils/convertToRemotion";
+import { calculateTotalDuration } from "../remotion/utils/calculateDuration";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,8 +103,10 @@ export default function RankingVideos() {
   });
 
   // Toggle View State
-  const [previewMode, setPreviewMode] = useState<"realtime" | "export">(
-    "realtime"
+  const [previewMode, setPreviewMode] = useState<
+    "realtime" | "export" | "remotion"
+  >(
+    "remotion" // Default to Remotion preview
   );
 
   const handleVideoCountChange = (count: 3 | 4 | 5 | 6) => {
@@ -133,21 +139,63 @@ export default function RankingVideos() {
     value: string | TextSegment[]
   ) => {
     const newVideos = [...videos];
-    if (field === "url") {
-      newVideos[index] = { ...newVideos[index], url: value as string };
-    } else {
-      newVideos[index] = { ...newVideos[index], title: value as TextSegment[] };
-    }
+    newVideos[index] = { ...newVideos[index], [field]: value };
     setVideos(newVideos);
     setError("");
 
-    // Clear failed state for this specific video when it's changed
-    setFailedVideoIndices((prev) => {
-      const newSet = new Set(prev);
-      newSet.delete(index);
-      return newSet;
-    });
+    // Auto-download video for Remotion preview when URL is pasted
+    if (
+      field === "url" &&
+      typeof value === "string" &&
+      value.includes("http")
+    ) {
+      console.log(`[Auto-download] Downloading video ${index + 1}:`, value);
 
+      // Download after short delay
+      setTimeout(async () => {
+        try {
+          const response = await fetch(
+            "http://localhost:4000/api/download/video",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: value }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.localPath) {
+              console.log(
+                `[Auto-download] Success for video ${index + 1}:`,
+                data.localPath
+              );
+              setVideos((prev) => {
+                const updated = [...prev];
+                updated[index] = {
+                  ...updated[index],
+                  localPath: data.localPath,
+                };
+                return updated;
+              });
+            }
+          } else {
+            console.error(`[Auto-download] Failed for video ${index + 1}`);
+          }
+        } catch (error) {
+          console.error(`[Auto-download] Error for video ${index + 1}:`, error);
+        }
+      }, 500);
+    }
+
+    // Remove from failed list if user is re-entering a URL
+    if (field === "url") {
+      setFailedVideoIndices((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(index);
+        return newSet;
+      });
+    }
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
 
@@ -791,22 +839,114 @@ export default function RankingVideos() {
         <div className="preview-column">
           <div className="preview-mode-toggle flex gap-2 mb-4">
             <Button
+              variant={previewMode === "remotion" ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => setPreviewMode("remotion")}
+            >
+              🎨 Remotion
+            </Button>
+            <Button
               variant={previewMode === "realtime" ? "default" : "outline"}
               className="flex-1"
               onClick={() => setPreviewMode("realtime")}
             >
-              ⚡ Realtime Preview
+              ⚡ Realtime
             </Button>
             <Button
               variant={previewMode === "export" ? "default" : "outline"}
               className="flex-1"
               onClick={() => setPreviewMode("export")}
             >
-              🎬 Final Export
+              🎬 Export
             </Button>
           </div>
 
-          {previewMode === "realtime" ? (
+          {previewMode === "remotion" ? (
+            (() => {
+              try {
+                const composition = convertToRemotionComposition(
+                  mainTitle,
+                  videos,
+                  width,
+                  height
+                );
+                const hasVideos = videos.some((v) => v.url && v.title[0]?.text);
+
+                if (!hasVideos) {
+                  return (
+                    <div
+                      className="preview-container flex items-center justify-center"
+                      style={{
+                        height: "600px",
+                        background: "hsl(220 20% 15%)",
+                        borderRadius: "8px",
+                      }}
+                    >
+                      <div className="text-center">
+                        <span style={{ fontSize: "4rem" }}>📹</span>
+                        <p
+                          style={{ color: "hsl(0 0% 60%)", marginTop: "1rem" }}
+                        >
+                          Add videos to see Remotion preview
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const totalDurationFrames = calculateTotalDuration(
+                  composition.clips,
+                  30
+                );
+
+                return (
+                  <div
+                    className="preview-container"
+                    style={{
+                      background: "hsl(220 20% 15%)",
+                      borderRadius: "8px",
+                      padding: "1rem",
+                    }}
+                  >
+                    <Player
+                      component={RankingVideoTemplate}
+                      inputProps={{ data: composition }}
+                      durationInFrames={totalDurationFrames}
+                      fps={30}
+                      compositionWidth={width}
+                      compositionHeight={height}
+                      style={{
+                        width: "100%",
+                        aspectRatio: `${width}/${height}`,
+                        maxHeight: "80vh",
+                      }}
+                      controls
+                      loop
+                    />
+                  </div>
+                );
+              } catch (error) {
+                console.error("Remotion preview error:", error);
+                return (
+                  <div
+                    className="preview-container flex items-center justify-center"
+                    style={{
+                      height: "600px",
+                      background: "hsl(220 20% 15%)",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    <div className="text-center">
+                      <span style={{ fontSize: "4rem" }}>⚠️</span>
+                      <p style={{ color: "#ef4444", marginTop: "1rem" }}>
+                        Preview error: {String(error)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+            })()
+          ) : previewMode === "realtime" ? (
             <RealtimePreview
               mainTitle={mainTitle}
               videos={videos}

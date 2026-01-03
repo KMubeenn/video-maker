@@ -489,3 +489,81 @@ export async function generateFullPreview(req: Request, res: Response) {
     });
   }
 }
+
+/**
+ * Generate ranking video using Remotion (NEW)
+ * This replaces FFmpeg with Remotion for composition and rendering
+ */
+export async function generateWithRemotion(req: Request, res: Response) {
+  try {
+    const { mainTitle, videos, width, height } = req.body as {
+      mainTitle: TextSegment[];
+      videos: VideoRankInput[];
+      width?: number;
+      height?: number;
+    };
+
+    // Import dynamically to avoid circular dependencies
+    const { createRankingVideoWithRemotion } = await import(
+      "../domain/ranking/ranking-remotion.orchestrator.js"
+    );
+
+    // Validation
+    const mainTitleText = mainTitle[0]?.text || "";
+    if (!mainTitleText.trim()) {
+      return res.status(400).json({ error: "Main title is required" });
+    }
+
+    if (!videos || !Array.isArray(videos)) {
+      return res.status(400).json({ error: "Videos must be an array" });
+    }
+
+    if (videos.length < 3 || videos.length > 6) {
+      return res
+        .status(400)
+        .json({ error: "Please provide between 3 and 6 videos" });
+    }
+
+    // Validate each video
+    for (let i = 0; i < videos.length; i++) {
+      const video = videos[i];
+      if (!video) {
+        return res.status(400).json({ error: `Video ${i + 1} is missing` });
+      }
+      const videoTitleText = video.title[0]?.text || "";
+      if (!video.url || !videoTitleText.trim()) {
+        return res
+          .status(400)
+          .json({ error: `Video ${i + 1} must have both url and title` });
+      }
+    }
+
+    console.log(
+      `🎨 Creating ranking video with Remotion (${videos.length} videos)...`
+    );
+
+    // Call Remotion orchestrator
+    const outputPath = await createRankingVideoWithRemotion({
+      mainTitle,
+      videos,
+      width,
+      height,
+    });
+
+    const outputFilename = path.basename(outputPath);
+
+    res.json({
+      success: true,
+      videoUrl: `http://localhost:4000/outputs/${outputFilename}`,
+      message: `Successfully created ranking video with Remotion`,
+      renderer: "remotion",
+    });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("Remotion rendering failed:", err);
+    res.status(500).json({
+      error: "Failed to create video with Remotion",
+      details: err.message,
+    });
+  }
+}
