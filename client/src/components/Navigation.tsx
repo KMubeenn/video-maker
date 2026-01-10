@@ -33,7 +33,7 @@ export function Navigation() {
   };
 
   return (
-    <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center gap-6">
           <Link
@@ -65,11 +65,11 @@ export function Navigation() {
               <Link to="/ranking">Ranking</Link>
             </Button>
             <Button
-              variant={currentPath === "/merge" ? "default" : "ghost"}
+              variant={currentPath === "/assets" ? "default" : "ghost"}
               asChild
               className="transition-all duration-200 hover:scale-105 hover:shadow-md"
             >
-              <Link to="/merge">Merge</Link>
+              <Link to="/assets">Assets</Link>
             </Button>
             {isAdmin && (
               <Button
@@ -86,9 +86,14 @@ export function Navigation() {
           <ThemeSwitcher />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-10 w-10 rounded-full transition-all duration-200 hover:scale-110 hover:shadow-md hover:ring-2 hover:ring-primary/50">
+              <Button
+                variant="ghost"
+                className="relative h-10 w-10 rounded-full transition-all duration-200 hover:scale-110 hover:shadow-md hover:ring-2 hover:ring-primary/50"
+              >
                 <Avatar>
-                  <AvatarFallback className="transition-all duration-200 hover:ring-2 hover:ring-primary/50">{getInitials(user?.email || "")}</AvatarFallback>
+                  <AvatarFallback className="transition-all duration-200 hover:ring-2 hover:ring-primary/50">
+                    {getInitials(user?.email || "")}
+                  </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
@@ -99,7 +104,10 @@ export function Navigation() {
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer transition-all duration-200 hover:bg-destructive/10 hover:text-destructive">
+              <DropdownMenuItem
+                onClick={handleSignOut}
+                className="cursor-pointer transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
+              >
                 Sign Out
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -109,4 +117,3 @@ export function Navigation() {
     </nav>
   );
 }
-
