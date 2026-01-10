@@ -22,6 +22,15 @@ const normalizeColor = (color: string | undefined): string => {
   return map[color] || color;
 };
 
+const isSocialUrl = (url: string) => {
+  return (
+    url.includes("tiktok.com") ||
+    url.includes("instagram.com") ||
+    url.includes("youtube.com") ||
+    url.includes("youtu.be")
+  );
+};
+
 // --- Components ---
 
 const ParsedTextToken: React.FC<{
@@ -148,12 +157,33 @@ const ClipLayer: React.FC<{ clip: EditedClip }> = ({ clip }) => {
   return (
     <AbsoluteFill>
       <div style={wrapperStyle}>
-        <OffthreadVideo
-          src={clip.src}
-          startFrom={(clip.trim?.start || 0) * 30}
-          endAt={(clip.trim?.end || 1000) * 30}
-          style={videoStyle}
-        />
+        {clip.src && !isSocialUrl(clip.src) ? (
+          <OffthreadVideo
+            src={clip.src}
+            startFrom={(clip.trim?.start || 0) * 30}
+            endAt={(clip.trim?.end || 1000) * 30}
+            style={videoStyle}
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <div
+            style={{
+              ...videoStyle,
+              backgroundColor: "#1a1a1a",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#333",
+              fontSize: 40,
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 700,
+            }}
+          >
+            {clip.src && isSocialUrl(clip.src)
+              ? "RESOLVING..."
+              : `VIDEO ${clip.slotIndex}`}
+          </div>
+        )}
       </div>
 
       {/* Audio Overlays */}
@@ -177,6 +207,12 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
   const videoHeight = canvasHeight - titleHeight;
   const totalRankingHeight = (spec.slots?.length || 0) * rankingItemHeight;
   const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
+
+  // Calculate total composition duration for persistent titles
+  const totalDuration = spec.sequence.reduce(
+    (sum, item) => sum + item.durationInFrames,
+    0
+  );
 
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
@@ -243,7 +279,7 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
           <Sequence
             key={`highlight-${item.clip.id}`}
             from={item.startFrame}
-            durationInFrames={item.durationInFrames}
+            durationInFrames={totalDuration - item.startFrame}
           >
             {/* Highlight Number */}
             <div

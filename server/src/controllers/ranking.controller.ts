@@ -6,102 +6,10 @@ import {
   type MultiDownloadResult,
   type DownloadError,
 } from "../services/downloader.service.js";
-import {
-  getVideoMetadata,
-  type TextSegment,
-} from "../services/ffmpeg.service.js";
+// ffmpeg service imports removed
 import { renderRankingVideo } from "../services/remotion.service.js";
 import type { RenderSpec, EditedClip } from "../types/ranking.js";
-// path is already imported at the top
-
-// ... existing code ...
-
-/**
- * Prepare resources for client-side realtime preview
- * Downloads videos and returns their local paths + metadata
- */
-export async function preparePreview(req: Request, res: Response) {
-  try {
-    const { videos } = req.body as {
-      videos: { url: string; id: number }[];
-    };
-
-    if (!videos || !Array.isArray(videos)) {
-      return res.status(400).json({ error: "Videos must be an array" });
-    }
-
-    console.log(`Preparing preview resources for ${videos.length} videos...`);
-
-    // Download videos
-    const urls = videos.map((v) => v.url);
-    const downloadResults = await downloadMultipleVideos(urls);
-
-    if (downloadResults.successful.length === 0) {
-      return res.status(400).json({
-        error: "All video downloads failed",
-        failedVideos: downloadResults.failed,
-      });
-    }
-
-    // Get metadata for each downloaded video
-    const readyVideos = await Promise.all(
-      downloadResults.successful.map(async (downloaded) => {
-        const originalIndex = downloaded.index;
-        const originalId = videos[originalIndex]?.id;
-
-        try {
-          const metadata = await getVideoMetadata(downloaded.filePath);
-          // Convert absolute path to relative path served by static middleware
-          // Assuming uploads are served at /uploads
-          const parts = downloaded.filePath.split("uploads");
-          const relativePath =
-            parts.length > 1
-              ? parts[1]
-              : `/${path.basename(downloaded.filePath)}`;
-          const servedUrl = `http://localhost:4000/uploads${(
-            relativePath || ""
-          ).replace(/\\/g, "/")}`;
-
-          return {
-            id: originalId,
-            url: servedUrl,
-            duration: metadata.duration,
-            width: metadata.width,
-            height: metadata.height,
-            originalUrl: downloaded.originalUrl,
-          };
-        } catch (err) {
-          console.error(
-            `Failed to get metadata for ${downloaded.filePath}:`,
-            err
-          );
-          return null;
-        }
-      })
-    );
-
-    const successfulVideos = readyVideos.filter((v) => v !== null);
-
-    res.json({
-      success: true,
-      videos: successfulVideos,
-      warnings:
-        downloadResults.failed.length > 0
-          ? {
-              message: `${downloadResults.failed.length} video(s) failed to download`,
-              failedVideos: downloadResults.failed,
-            }
-          : undefined,
-    });
-  } catch (error: unknown) {
-    const err = error as Error;
-    console.error("Prepare preview failed:", err);
-    res.status(500).json({
-      error: "Failed to prepare preview",
-      details: err.message,
-    });
-  }
-}
+import type { TextSegment } from "../types/video.types.js";
 
 export interface VideoRankInput {
   videoNumber?: number; // Immutable display number from client (optional for backward compatibility)
@@ -220,12 +128,12 @@ export async function createRanking(req: Request, res: Response) {
         rank: originalIndex + 1,
         trimStart: originalVideo?.trimStart,
         trimEnd: originalVideo?.trimEnd,
-        // Include crop values for FFmpeg
+        // Include crop values for Rendering
         cropX: originalVideo?.cropX,
         cropY: originalVideo?.cropY,
         cropWidth: originalVideo?.cropWidth,
         cropHeight: originalVideo?.cropHeight,
-        // Pass meme sound URLs directly - FFmpeg service will download if needed
+        // Pass meme sound URLs directly
         memeSounds: originalVideo?.memeSounds?.map((s) => ({
           file: s.file, // Keep the URL as-is (Supabase or other)
           startTime: s.startTime,
@@ -298,7 +206,7 @@ export async function createRanking(req: Request, res: Response) {
         outputFilename
       );
     } else {
-      // Fallback: If no spec provided, we might need to fail or use legacy FFmpeg (which we are replacing).
+      // Fallback: Spec is required for Remotion export
       // For now, let's assume client sends spec. If not, error.
       throw new Error(
         "RenderSpec is required for Remotion export. Please refresh client."
@@ -455,12 +363,12 @@ export async function generateFullPreview(req: Request, res: Response) {
         rank: originalVideo?.videoNumber || originalIndex + 1, // Use immutable videoNumber as rank for slot positioning
         trimStart: originalVideo?.trimStart,
         trimEnd: originalVideo?.trimEnd,
-        // Include crop values for FFmpeg
+        // Include crop values for Rendering
         cropX: originalVideo?.cropX,
         cropY: originalVideo?.cropY,
         cropWidth: originalVideo?.cropWidth,
         cropHeight: originalVideo?.cropHeight,
-        // Pass meme sound URLs directly - FFmpeg service will download if needed
+        // Pass meme sound URLs directly
         memeSounds: originalVideo?.memeSounds?.map((s) => ({
           file: s.file, // Keep the URL as-is (Supabase or other)
           startTime: s.startTime,
@@ -476,7 +384,7 @@ export async function generateFullPreview(req: Request, res: Response) {
       );
     });
 
-    // Pass videos to FFmpeg in exact array order
+    // Pass videos to Remotion in exact array order
     const orderedInputs = rankingInputs;
 
     console.log(
@@ -532,8 +440,14 @@ export async function generateFullPreview(req: Request, res: Response) {
 
       const matchedPath = urlToPathMap.get(item.clip.src);
       if (matchedPath) {
-        // Normalize path for cross-platform (Remotion might need forward slashes)
-        item.clip.src = matchedPath.replace(/\\/g, "/");
+        // Remotion server-side renderer requires HTTP URLs, not file paths
+        // Convert: "uploads/video-xxx.mp4" -> "http://localhost:4000/uploads/video-xxx.mp4"
+        const normalizedPath = matchedPath.replace(/\\/g, "/");
+        // Extract just the relative path from uploads/
+        const relativePath = normalizedPath.includes("uploads/")
+          ? normalizedPath.substring(normalizedPath.indexOf("uploads/"))
+          : normalizedPath;
+        item.clip.src = `http://localhost:4000/${relativePath}`;
       } else {
         console.warn(
           `Could not find local download for clip src: ${item.clip.src}`

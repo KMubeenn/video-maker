@@ -1,6 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from "react";
-import { Player, type PlayerRef } from "@remotion/player";
-import { RankingComposition } from "../remotion/RankingComposition";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -19,11 +17,11 @@ import {
 import {
   generateFullPreview,
   uploadVideoFile,
-  preparePreview,
+  resolveVideoUrl,
   type TextSegment,
 } from "../api/video.api";
 import { RichTextInput } from "../components/RichTextInput";
-import { RealtimePreview } from "../components/RealtimePreview";
+
 import { VideoEditor } from "../components/VideoEditor";
 import { SortableVideoCard } from "../components/SortableVideoCard";
 import { type VideoMemeSound } from "../types/timeline";
@@ -31,9 +29,14 @@ import {
   type EditedClip,
   type PreviewState,
   createEmptyEditedClip,
-  VideoPreviewPanel,
 } from "../features/ranking";
+
+import { Player } from "@remotion/player";
+import { RankingComposition } from "../remotion/RankingComposition";
+
 import { buildRenderSpec } from "../features/ranking/utils/spec-builder";
+
+import { getVideoMetadata } from "../features/ranking/utils/video-metadata";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -96,48 +99,167 @@ export default function RankingVideos() {
     })
   );
 
-  // Build spec for Remotion Player
-  const renderSpec = useMemo(
-    () => buildRenderSpec(videos, mainTitle),
+  // Track which videos are currently being resolved
+  const [resolvingIndices, setResolvingIndices] = useState<number[]>([]);
+
+  // Track failed resolutions to prevent infinite retries
+  const [failedResolutions, setFailedResolutions] = useState<Set<string>>(
+    new Set()
+  );
+
+  // Metadata fetching effect
+  useEffect(() => {
+    const fetchMetadata = async () => {
+      let hasUpdates = false;
+      const newVideos = [...videos];
+
+      await Promise.all(
+        newVideos.map(async (video, index) => {
+          // If we have a URL but no duration (or 0), fetch it
+          if (video.src && !video.duration) {
+            console.log(`[Frontend] Checking video ${index + 1}: ${video.src}`);
+
+            // Check if it's a social URL that needs resolution
+            const isSocialUrl =
+              video.src.includes("tiktok.com") ||
+              video.src.includes("instagram.com") ||
+              video.src.includes("youtube.com") ||
+              video.src.includes("youtu.be");
+
+            if (isSocialUrl) {
+              // Skip if previously failed
+              if (failedResolutions.has(video.src)) {
+                console.log(
+                  `[Frontend] Video ${
+                    index + 1
+                  } previously failed resolution, skipping.`
+                );
+                return;
+              }
+
+              // Avoid re-resolving if already in progress or already looks local (localhost)
+              if (resolvingIndices.includes(index)) {
+                console.log(
+                  `[Frontend] Video ${index + 1} is already resolving.`
+                );
+                return;
+              }
+
+              if (video.src.includes("localhost")) {
+                console.log(
+                  `[Frontend] Video ${
+                    index + 1
+                  } seems to be already local/resolved.`
+                );
+                // Proceed to metadata check below
+              } else {
+                try {
+                  console.log(
+                    `[Frontend] Triggering resolution for video ${index + 1}: ${
+                      video.src
+                    }`
+                  );
+
+                  // Mark as resolving
+                  setResolvingIndices((prev) => [...prev, index]);
+
+                  const response = await resolveVideoUrl(video.src, index);
+                  console.log(
+                    `[Frontend] Resolution response for ${index + 1}:`,
+                    response
+                  );
+
+                  if (response.success && response.data.resolvedUrl) {
+                    console.log(
+                      `[Frontend] Resolved ${index + 1} to ${
+                        response.data.resolvedUrl
+                      }`
+                    );
+
+                    // Update with resolved URL
+                    // Get metadata for the NEW resolved URL
+                    const meta = await getVideoMetadata(
+                      response.data.resolvedUrl
+                    );
+
+                    newVideos[index] = {
+                      ...video,
+                      src: response.data.resolvedUrl, // Replace with playable URL
+                      duration: meta.duration,
+                      resolution: { width: meta.width, height: meta.height },
+                    };
+                    hasUpdates = true;
+                  }
+                } catch (err) {
+                  console.error(
+                    `[Frontend] Failed to resolve video ${index + 1}`,
+                    err
+                  );
+                  // Mark as failed to prevent infinite retries
+                  setFailedResolutions((prev) => new Set(prev).add(video.src));
+                } finally {
+                  // Remove from resolving list
+                  setResolvingIndices((prev) =>
+                    prev.filter((i) => i !== index)
+                  );
+                }
+                return; // Don't fall through to standard metadata check for this iteration
+              }
+            }
+
+            // Standard direct file or already resolved
+            try {
+              console.log(
+                `[Frontend] Fetching metadata for direct/resolved link: ${video.src}`
+              );
+              const meta = await getVideoMetadata(video.src);
+              newVideos[index] = {
+                ...video,
+                duration: meta.duration,
+                resolution: { width: meta.width, height: meta.height },
+              };
+              hasUpdates = true;
+            } catch (err) {
+              console.error(
+                `[Frontend] Failed to load metadata for video ${index + 1}`,
+                err
+              );
+              // Set default duration to avoid infinite loop
+              newVideos[index] = {
+                ...video,
+                duration: 10, // Fallback 10 seconds
+              };
+              hasUpdates = true;
+            }
+          }
+        })
+      );
+
+      if (hasUpdates) {
+        setVideos(newVideos);
+      }
+    };
+
+    fetchMetadata();
+  }, [videos, resolvingIndices]);
+
+  // Remotion Spec & Duration
+  const fps = 30;
+  const spec = useMemo(
+    () => buildRenderSpec(videos, mainTitle, fps),
     [videos, mainTitle]
   );
   const durationInFrames = useMemo(() => {
-    if (renderSpec.sequence.length === 0) return 30;
-    const lastItem = renderSpec.sequence[renderSpec.sequence.length - 1];
-    return lastItem.startFrame + lastItem.durationInFrames;
-  }, [renderSpec]);
-
-  // Sync Logic
-  const playerRef = useRef<PlayerRef>(null);
-
-  const handlePreviewTimeUpdate = useCallback((time: number) => {
-    if (playerRef.current) {
-      const frame = Math.round(time * 30);
-      playerRef.current.seekTo(frame);
-    }
-  }, []);
-
-  const handlePreviewPlayState = useCallback((isPlaying: boolean) => {
-    if (playerRef.current) {
-      if (isPlaying) {
-        playerRef.current.play();
-      } else {
-        playerRef.current.pause();
-      }
-    }
-  }, []);
-
-  // Single preview state
+    return (
+      spec.sequence.reduce((total, item) => total + item.durationInFrames, 0) ||
+      1
+    );
+  }, [spec]);
   const [previewState, setPreviewState] = useState<PreviewState>({
     isGenerating: false,
     videoUrl: null,
     error: null,
   });
-
-  // Toggle View State
-  const [previewMode, setPreviewMode] = useState<"realtime" | "export">(
-    "realtime"
-  );
 
   // Handle drag end event
   const handleDragEnd = (event: DragEndEvent) => {
@@ -147,7 +269,12 @@ export default function RankingVideos() {
       setVideos((items) => {
         const oldIndex = items.findIndex((item) => item.id === active.id);
         const newIndex = items.findIndex((item) => item.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
+        const newOrder = arrayMove(items, oldIndex, newIndex);
+        // Sync slotIndex to new array order
+        return newOrder.map((clip, index) => ({
+          ...clip,
+          slotIndex: index + 1,
+        }));
       });
       // Clear preview when order changes
       setPreviewState({ isGenerating: false, videoUrl: null, error: null });
@@ -158,10 +285,13 @@ export default function RankingVideos() {
     setVideoCount(count);
     const newVideos: EditedClip[] = [];
     for (let i = 0; i < count; i++) {
-      // Preserve existing video if it exists, otherwise create new with stable slotIndex
-      newVideos.push(
-        videos[i] || createEmptyEditedClip((i + 1).toString(), i + 1)
-      );
+      // Preserve existing video if it exists, otherwise create new
+      const existing = videos[i];
+      if (existing) {
+        newVideos.push({ ...existing, slotIndex: i + 1 });
+      } else {
+        newVideos.push(createEmptyEditedClip((i + 1).toString(), i + 1));
+      }
     }
     setVideos(newVideos);
     setError("");
@@ -199,51 +329,15 @@ export default function RankingVideos() {
     null
   );
 
-  const [loadingEditorIndex, setLoadingEditorIndex] = useState<number | null>(
-    null
-  );
   const [editorUrl, setEditorUrl] = useState<string | null>(null);
 
   const handleEditClick = async (index: number) => {
     const video = videos[index];
     if (!video.src) return;
 
-    // Check if it's a local file (playable directly)
-    const isLocal =
-      video.src.includes("localhost") || video.src.startsWith("blob:");
-
-    if (isLocal) {
-      setEditorUrl(video.src);
-      setEditingVideoIndex(index);
-    } else {
-      // It's an external URL (YouTube/Instagram) - we need to download/cache it first
-      setLoadingEditorIndex(index);
-      try {
-        // Use preparePreview logic to get a playable local URL
-        const response = await preparePreview([
-          {
-            url: video.src,
-            id: parseInt(video.id), // Legacy API expects number ID
-          },
-        ]);
-
-        if (response.success && response.videos.length > 0) {
-          setEditorUrl(response.videos[0].url);
-          setEditingVideoIndex(index);
-        } else {
-          setError(
-            `Could not load video for editing: ${
-              response.warnings?.message || "Unknown error"
-            }`
-          );
-        }
-      } catch (err: unknown) {
-        console.error("Failed to prepare video for editing:", err);
-        setError("Failed to load video for editing. Please try again.");
-      } finally {
-        setLoadingEditorIndex(null);
-      }
-    }
+    // Simplified edit logic (removed preparePreview)
+    setEditorUrl(video.src);
+    setEditingVideoIndex(index);
   };
 
   const handleSaveEdit = (
@@ -363,8 +457,9 @@ export default function RankingVideos() {
 
     try {
       // Build RenderSpec for deterministic timing
-      const fps = 30; // FFmpeg default
-      const spec = buildRenderSpec(videos, mainTitle, fps);
+      // fps and spec are already calculated by useMemo above
+      // const fps = 30;
+      // const spec = buildRenderSpec(videos, mainTitle, fps);
 
       const response = await generateFullPreview(
         mainTitle,
@@ -631,10 +726,19 @@ export default function RankingVideos() {
                       key={video.id}
                       id={video.id}
                       className={cn(
-                        "video-input-group mb-4",
+                        "video-input-group mb-4 relative",
                         hasFailed && "has-error"
                       )}
                     >
+                      {/* Resolving Overlay */}
+                      {resolvingIndices.includes(index) && (
+                        <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm pointer-events-none">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2"></div>
+                          <span className="text-white font-medium">
+                            Resolving Media...
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center mb-2 gap-2 w-full">
                         <Badge
                           variant={hasFailed ? "destructive" : "default"}
@@ -689,16 +793,10 @@ export default function RankingVideos() {
                               size="icon"
                               className="upload-icon-btn h-10 w-10"
                               onClick={() => handleEditClick(index)}
-                              disabled={
-                                !video.src || loadingEditorIndex === index
-                              }
+                              disabled={!video.src}
                               title="Trim/Edit Video"
                             >
-                              {loadingEditorIndex === index ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Scissors className="h-4 w-4" />
-                              )}
+                              <Scissors className="h-4 w-4" />
                             </Button>
                           </div>
                           {hasFailed && failureInfo && (
@@ -831,67 +929,61 @@ export default function RankingVideos() {
 
         {/* Right Column - Preview (sticky) */}
         <div className="preview-column">
-          <div className="preview-mode-toggle flex gap-2 mb-4">
-            <Button
-              variant={previewMode === "realtime" ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setPreviewMode("realtime")}
+          <div className="sticky top-4 space-y-4">
+            <h2 className="text-lg font-semibold mb-2">Live Preview</h2>
+            <div
+              className="rounded-xl overflow-hidden shadow-2xl border bg-black w-full relative z-0 mx-auto"
+              style={{
+                aspectRatio: `${width}/${height}`,
+                maxHeight: "calc(100vh - 200px)", // Leave space for header/controls
+              }}
             >
-              ⚡ Realtime Preview
-            </Button>
-            <Button
-              variant={previewMode === "export" ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setPreviewMode("export")}
-            >
-              🎬 Final Export
-            </Button>
-          </div>
-
-          {previewMode === "realtime" ? (
-            <RealtimePreview
-              mainTitle={mainTitle}
-              videos={videos}
-              width={width}
-              height={height}
-              onTimeUpdate={handlePreviewTimeUpdate}
-              onPlayStateChange={handlePreviewPlayState}
-            />
-          ) : (
-            <VideoPreviewPanel
-              mainTitle={mainTitle}
-              videos={videos}
-              width={width}
-              height={height}
-              previewState={previewState}
-              onGeneratePreview={handleGeneratePreview}
-            />
-          )}
-
-          {/* Remotion Verification Player */}
-          <div className="mt-8 border-t pt-8">
-            <h3 className="text-lg font-semibold mb-4">
-              Remotion Verification (Test)
-            </h3>
-            <div className="aspect-[9/16] w-full max-w-[360px] mx-auto bg-black border rounded-lg overflow-hidden shadow-xl">
               <Player
                 component={RankingComposition}
-                inputProps={{ spec: renderSpec }}
-                durationInFrames={Math.max(1, durationInFrames)}
-                compositionWidth={1080}
-                compositionHeight={1920}
-                fps={30}
+                inputProps={{ spec }}
+                durationInFrames={durationInFrames}
+                fps={fps}
+                compositionWidth={width}
+                compositionHeight={height}
                 style={{
                   width: "100%",
                   height: "100%",
                 }}
-                ref={playerRef}
                 controls
+                autoPlay
+                loop
+                initiallyShowControls
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              This player renders the same RenderSpec as the export.
-            </p>
+            <div className="text-xs text-muted-foreground text-center">
+              Preview updates automatically as you edit
+            </div>
+
+            {previewState.videoUrl && (
+              <div className="mt-4 p-4 border rounded-lg bg-secondary/20">
+                <div className="flex flex-col gap-2">
+                  <div className="text-sm font-medium text-green-600 flex items-center gap-2">
+                    <Check className="h-4 w-4" /> Export Ready
+                  </div>
+                  <a
+                    href={previewState.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full"
+                  >
+                    <Button variant="secondary" className="w-full gap-2">
+                      <Database className="h-4 w-4" /> Download Video
+                    </Button>
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {previewState.error && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertDescription>{previewState.error}</AlertDescription>
+              </Alert>
+            )}
           </div>
         </div>
       </div>
