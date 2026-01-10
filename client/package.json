@@ -21,6 +21,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
+    "@remotion/player": "4.0.404",
     "@supabase/supabase-js": "^2.89.0",
     "@tanstack/react-router": "^1.143.6",
     "@tanstack/react-router-devtools": "^1.143.6",
@@ -33,11 +34,12 @@
     "papaparse": "^5.5.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tailwind-merge": "^3.4.0",
-    "video-maker-shared": "file:../shared"
+    "remotion": "^4.0.404",
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@remotion/cli": "^4.0.404",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",

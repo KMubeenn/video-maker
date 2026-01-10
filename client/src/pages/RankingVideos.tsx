@@ -26,10 +26,12 @@ import { VideoEditor } from "../components/VideoEditor";
 import { SortableVideoCard } from "../components/SortableVideoCard";
 import { type VideoMemeSound } from "../types/timeline";
 import {
-  type VideoInput,
+  type EditedClip,
   type PreviewState,
+  createEmptyEditedClip,
   VideoPreviewPanel,
 } from "../features/ranking";
+import { buildRenderSpec } from "../features/ranking/utils/spec-builder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,28 +74,10 @@ export default function RankingVideos() {
     { text: "", color: "white", fontSize: 64 }, // Medium (64px) default for main title
   ]);
   const [videoCount, setVideoCount] = useState<3 | 4 | 5 | 6>(3);
-  const [videos, setVideos] = useState<VideoInput[]>([
-    {
-      id: 1,
-      videoNumber: 1,
-      url: "",
-      title: [{ text: "", color: "white", fontSize: 52 }],
-      memeSounds: [],
-    },
-    {
-      id: 2,
-      videoNumber: 2,
-      url: "",
-      title: [{ text: "", color: "white", fontSize: 52 }],
-      memeSounds: [],
-    },
-    {
-      id: 3,
-      videoNumber: 3,
-      url: "",
-      title: [{ text: "", color: "white", fontSize: 52 }],
-      memeSounds: [],
-    },
+  const [videos, setVideos] = useState<EditedClip[]>([
+    createEmptyEditedClip("1", 1),
+    createEmptyEditedClip("2", 2),
+    createEmptyEditedClip("3", 3),
   ]);
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1920);
@@ -139,17 +123,11 @@ export default function RankingVideos() {
 
   const handleVideoCountChange = (count: 3 | 4 | 5 | 6) => {
     setVideoCount(count);
-    const newVideos: VideoInput[] = [];
+    const newVideos: EditedClip[] = [];
     for (let i = 0; i < count; i++) {
-      // Preserve existing video if it exists, otherwise create new with stable videoNumber
+      // Preserve existing video if it exists, otherwise create new with stable slotIndex
       newVideos.push(
-        videos[i] || {
-          id: i + 1,
-          videoNumber: i + 1, // Assign permanent display number
-          url: "",
-          title: [{ text: "", color: "white", fontSize: 52 }],
-          memeSounds: [],
-        }
+        videos[i] || createEmptyEditedClip((i + 1).toString(), i + 1)
       );
     }
     setVideos(newVideos);
@@ -166,7 +144,7 @@ export default function RankingVideos() {
   ) => {
     const newVideos = [...videos];
     if (field === "url") {
-      newVideos[index] = { ...newVideos[index], url: value as string };
+      newVideos[index] = { ...newVideos[index], src: value as string };
     } else {
       newVideos[index] = { ...newVideos[index], title: value as TextSegment[] };
     }
@@ -195,14 +173,14 @@ export default function RankingVideos() {
 
   const handleEditClick = async (index: number) => {
     const video = videos[index];
-    if (!video.url) return;
+    if (!video.src) return;
 
     // Check if it's a local file (playable directly)
     const isLocal =
-      video.url.includes("localhost") || video.url.startsWith("blob:");
+      video.src.includes("localhost") || video.src.startsWith("blob:");
 
     if (isLocal) {
-      setEditorUrl(video.url);
+      setEditorUrl(video.src);
       setEditingVideoIndex(index);
     } else {
       // It's an external URL (YouTube/Instagram) - we need to download/cache it first
@@ -211,8 +189,8 @@ export default function RankingVideos() {
         // Use preparePreview logic to get a playable local URL
         const response = await preparePreview([
           {
-            url: video.url,
-            id: video.id,
+            url: video.src,
+            id: parseInt(video.id), // Legacy API expects number ID
           },
         ]);
 
@@ -242,21 +220,38 @@ export default function RankingVideos() {
     cropY?: number,
     cropWidth?: number,
     cropHeight?: number,
-    memeSounds?: VideoMemeSound[]
+    memeSounds?: VideoMemeSound[],
+    nativeWidth?: number,
+    nativeHeight?: number
   ) => {
     if (editingVideoIndex === null) return;
 
     const newVideos = [...videos];
+    const video = newVideos[editingVideoIndex];
+
+    // Map legacy memeSounds from editor to AudioTrack[]
+    const audioTracks =
+      memeSounds?.map((ms) => ({
+        src: ms.file,
+        start: ms.startTime,
+        volume: ms.volume ?? 1.0,
+      })) || [];
+
     newVideos[editingVideoIndex] = {
-      ...newVideos[editingVideoIndex],
-      trimStart: start,
-      trimEnd: end,
-      // Include crop values if provided
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      memeSounds: memeSounds || newVideos[editingVideoIndex].memeSounds || [],
+      ...video,
+      trim: { start, end },
+      crop:
+        cropX !== undefined &&
+        cropY !== undefined &&
+        cropWidth !== undefined &&
+        cropHeight !== undefined
+          ? { x: cropX, y: cropY, width: cropWidth, height: cropHeight }
+          : undefined,
+      audio: audioTracks,
+      resolution:
+        nativeWidth && nativeHeight
+          ? { width: nativeWidth, height: nativeHeight }
+          : video.resolution,
     };
     setVideos(newVideos);
     // Clear preview because trimming/cropping changed
@@ -311,7 +306,7 @@ export default function RankingVideos() {
       return;
     }
 
-    const emptyTitles = videos.filter((v) => !v.title[0]?.text.trim());
+    const emptyTitles = videos.filter((v) => !v.title![0]?.text.trim());
     if (emptyTitles.length > 0) {
       setPreviewState({
         isGenerating: false,
@@ -321,7 +316,7 @@ export default function RankingVideos() {
       return;
     }
 
-    const emptyUrls = videos.filter((v) => !v.url.trim());
+    const emptyUrls = videos.filter((v) => !v.src.trim());
     if (emptyUrls.length > 0) {
       setPreviewState({
         isGenerating: false,
@@ -334,27 +329,34 @@ export default function RankingVideos() {
     setPreviewState({ isGenerating: true, videoUrl: null, error: null });
 
     try {
+      // Build RenderSpec for deterministic timing
+      const fps = 30; // FFmpeg default
+      const spec = buildRenderSpec(videos, fps);
+
       const response = await generateFullPreview(
         mainTitle,
         videos.map((v) => ({
-          url: v.url,
-          title: v.title,
-          videoNumber: v.videoNumber, // CRITICAL: immutable slot assignment for fixed positioning
-          trimStart: v.trimStart,
-          trimEnd: v.trimEnd,
+          url: v.src,
+          title: v.title!,
+          videoNumber: v.slotIndex, // CRITICAL: immutable slot assignment for fixed positioning
+          trimStart: v.trim?.start,
+          trimEnd: v.trim?.end,
           // Include crop values for export
-          cropX: v.cropX,
-          cropY: v.cropY,
-          cropWidth: v.cropWidth,
-          cropHeight: v.cropHeight,
-          memeSounds: v.memeSounds?.map((s) => ({
-            file: s.file,
-            startTime: s.startTime,
-            volume: s.volume,
+          cropX: v.crop?.x,
+          cropY: v.crop?.y,
+          cropWidth: v.crop?.width,
+          cropHeight: v.crop?.height,
+          memeSounds: v.audio?.map((a) => ({
+            id: Math.random().toString(), // Helper for legacy API
+            soundId: "custom",
+            file: a.src,
+            startTime: a.start,
+            volume: a.volume ?? 1.0,
           })),
         })),
         width,
-        height
+        height,
+        spec
       );
       // Extract failed video indices from warnings
       const failedIndices = new Set<number>();
@@ -430,8 +432,8 @@ export default function RankingVideos() {
       );
 
       setAvailableVideos(uniqueVideos);
-    } catch (err: any) {
-      setError(err.message || "Failed to load videos");
+    } catch (err: unknown) {
+      setError((err as Error).message || "Failed to load videos");
     } finally {
       setLoadingVideos(false);
     }
@@ -463,32 +465,27 @@ export default function RankingVideos() {
         : filteredVideos.slice(0, videoCount);
 
     // Populate videos array
-    const newVideos: VideoInput[] = [];
+    const newVideos: EditedClip[] = [];
     for (let i = 0; i < videoCount; i++) {
       const dbVideo = videosToUse[i];
       if (dbVideo) {
-        // Convert database video to VideoInput format
+        // Convert database video to EditedClip format
         const titleSegments: TextSegment[] = dbVideo.title
           ? [{ text: dbVideo.title, color: "white", fontSize: 52 }] // Small (52px) default
           : [{ text: "", color: "white", fontSize: 52 }];
 
         newVideos.push({
-          id: i + 1,
-          videoNumber: i + 1, // Assign permanent display number
-          url: dbVideo.clip_url,
+          id: (i + 1).toString(),
+          slotIndex: i + 1,
+          src: dbVideo.clip_url,
+          duration: 0, // Unknown initially
           title: titleSegments,
-          memeSounds: [],
+          audio: [],
         });
       } else {
         // Keep existing video or create empty one
         newVideos.push(
-          videos[i] || {
-            id: i + 1,
-            videoNumber: i + 1,
-            url: "",
-            title: [{ text: "", color: "white", fontSize: 52 }],
-            memeSounds: [],
-          }
+          videos[i] || createEmptyEditedClip((i + 1).toString(), i + 1)
         );
       }
     }
@@ -613,7 +610,7 @@ export default function RankingVideos() {
                             hasFailed && "error"
                           )}
                         >
-                          #{video.videoNumber}
+                          #{video.slotIndex}
                         </Badge>
                         <div className="video-inputs flex-1">
                           <div className="flex items-center gap-2">
@@ -633,8 +630,8 @@ export default function RankingVideos() {
                                 "url-input flex-1",
                                 hasFailed && "error border-destructive"
                               )}
-                              placeholder={`Video ${video.videoNumber} URL (TikTok, Instagram, YouTube)`}
-                              value={video.url}
+                              placeholder={`Video ${video.slotIndex} URL (TikTok, Instagram, YouTube)`}
+                              value={video.src}
                               onChange={(e) =>
                                 handleVideoChange(index, "url", e.target.value)
                               }
@@ -660,7 +657,7 @@ export default function RankingVideos() {
                               className="upload-icon-btn h-10 w-10"
                               onClick={() => handleEditClick(index)}
                               disabled={
-                                !video.url || loadingEditorIndex === index
+                                !video.src || loadingEditorIndex === index
                               }
                               title="Trim/Edit Video"
                             >
@@ -684,11 +681,11 @@ export default function RankingVideos() {
                         </div>
                       </div>
                       <RichTextInput
-                        value={video.title}
+                        value={video.title!}
                         onChange={(segments) =>
                           handleVideoChange(index, "title", segments)
                         }
-                        placeholder={`Video ${video.videoNumber} Title`}
+                        placeholder={`Video ${video.slotIndex} Title`}
                         disabled={false}
                         size={52}
                       />
@@ -840,20 +837,26 @@ export default function RankingVideos() {
 
       {editingVideoIndex !== null && (
         <VideoEditor
-          url={editorUrl || videos[editingVideoIndex].url}
+          url={editorUrl || videos[editingVideoIndex].src}
           isOpen={true}
           onClose={() => {
             setEditingVideoIndex(null);
             setEditorUrl(null);
           }}
           onSave={handleSaveEdit}
-          initialTrimStart={videos[editingVideoIndex].trimStart}
-          initialTrimEnd={videos[editingVideoIndex].trimEnd}
-          initialCropX={videos[editingVideoIndex].cropX}
-          initialCropY={videos[editingVideoIndex].cropY}
-          initialCropWidth={videos[editingVideoIndex].cropWidth}
-          initialCropHeight={videos[editingVideoIndex].cropHeight}
-          initialMemeSounds={videos[editingVideoIndex].memeSounds}
+          initialTrimStart={videos[editingVideoIndex].trim?.start}
+          initialTrimEnd={videos[editingVideoIndex].trim?.end}
+          initialCropX={videos[editingVideoIndex].crop?.x}
+          initialCropY={videos[editingVideoIndex].crop?.y}
+          initialCropWidth={videos[editingVideoIndex].crop?.width}
+          initialCropHeight={videos[editingVideoIndex].crop?.height}
+          initialMemeSounds={videos[editingVideoIndex].audio?.map((a) => ({
+            id: Math.random().toString(36).substr(2, 9),
+            soundId: "custom",
+            file: a.src,
+            startTime: a.start,
+            volume: a.volume ?? 1.0,
+          }))}
         />
       )}
 

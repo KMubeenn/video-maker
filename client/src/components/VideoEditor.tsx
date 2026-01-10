@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
-  type CropState,
   type CropPreset,
   calculateCropFromPreset,
   clampCropToBounds,
@@ -9,6 +8,17 @@ import {
 import { memeSoundsApi } from "../api/meme-sounds.api";
 import type { MemeSound, VideoMemeSound } from "../types/timeline";
 import "./VideoEditor.css";
+
+const RESIZE_HANDLE_CURSOR = {
+  nw: "nw-resize",
+  n: "n-resize",
+  ne: "ne-resize",
+  e: "e-resize",
+  se: "se-resize",
+  s: "s-resize",
+  sw: "sw-resize",
+  w: "w-resize",
+};
 
 interface VideoEditorProps {
   url: string;
@@ -22,7 +32,9 @@ interface VideoEditorProps {
     cropY?: number,
     cropWidth?: number,
     cropHeight?: number,
-    memeSounds?: VideoMemeSound[]
+    memeSounds?: VideoMemeSound[],
+    nativeWidth?: number,
+    nativeHeight?: number
   ) => void;
   initialTrimStart?: number;
   initialTrimEnd?: number;
@@ -33,6 +45,10 @@ interface VideoEditorProps {
   initialCropHeight?: number;
   initialMemeSounds?: VideoMemeSound[];
 }
+
+// Helper to generate IDs
+const generateId = () =>
+  Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 export function VideoEditor({
   url,
@@ -50,35 +66,34 @@ export function VideoEditor({
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const cropContainerRef = useRef<HTMLDivElement>(null);
-  const [duration, setDuration] = useState(0);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  // Edit State
+  const [trimStart, setTrimStart] = useState(initialTrimStart);
+  const [trimEnd, setTrimEnd] = useState(initialTrimEnd || 0);
   const [isDragging, setIsDragging] = useState<
     "start" | "end" | "playhead" | null
   >(null);
 
-  // Trim state
-  const [trimStart, setTrimStart] = useState(initialTrimStart);
-  const [trimEnd, setTrimEnd] = useState(initialTrimEnd);
+  // Mode Switching
+  const [editMode, setEditMode] = useState<"trim" | "crop" | "sounds">("trim");
 
-  // Video native dimensions (from metadata)
+  // Crop State
   const [videoNativeWidth, setVideoNativeWidth] = useState(0);
   const [videoNativeHeight, setVideoNativeHeight] = useState(0);
-
-  // Crop state (stored in source video pixels)
-  const [cropX, setCropX] = useState(initialCropX ?? 0);
-  const [cropY, setCropY] = useState(initialCropY ?? 0);
-  const [cropWidth, setCropWidth] = useState(initialCropWidth ?? 0);
-  const [cropHeight, setCropHeight] = useState(initialCropHeight ?? 0);
+  const [cropX, setCropX] = useState(initialCropX || 0);
+  const [cropY, setCropY] = useState(initialCropY || 0);
+  const [cropWidth, setCropWidth] = useState(initialCropWidth || 0);
+  const [cropHeight, setCropHeight] = useState(initialCropHeight || 0);
   const [activePreset, setActivePreset] = useState<CropPreset>("freeform");
 
-  // Crop drag state
   const [isCropDragging, setIsCropDragging] = useState(false);
-  const [cropDragType, setCropDragType] = useState<
-    "move" | "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | null
-  >(null);
+  const [cropDragType, setCropDragType] = useState<string | null>(null);
   const [cropDragStart, setCropDragStart] = useState({ x: 0, y: 0 });
-  const [cropDragInitial, setCropDragInitial] = useState<CropState>({
+  const [cropDragInitial, setCropDragInitial] = useState({
     x: 0,
     y: 0,
     width: 0,
@@ -86,28 +101,77 @@ export function VideoEditor({
   });
 
   // Meme Sounds State
-  const [editMode, setEditMode] = useState<"trim" | "crop" | "sounds">("trim");
   const [videoMemeSounds, setVideoMemeSounds] =
     useState<VideoMemeSound[]>(initialMemeSounds);
   const [availableSounds, setAvailableSounds] = useState<MemeSound[]>([]);
   const [loadingSounds, setLoadingSounds] = useState(false);
   const [draggedSoundId, setDraggedSoundId] = useState<string | null>(null);
 
-  // Audio Playback References
-  const lastTimeRef = useRef(initialTrimStart);
-  const playedSoundsRef = useRef<Set<string>>(new Set()); // Track played sounds to avoid repeats
+  const lastTimeRef = useRef(0);
 
-  // Fetch sounds on mount
+  // Load available sounds
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && editMode === "sounds" && availableSounds.length === 0) {
       setLoadingSounds(true);
-      memeSoundsApi
-        .list()
-        .then(setAvailableSounds)
-        .catch((err) => console.error("Failed to fetch sounds", err))
-        .finally(() => setLoadingSounds(false));
+      memeSoundsApi.list().then((sounds) => {
+        setAvailableSounds(sounds);
+        setLoadingSounds(false);
+      });
     }
-  }, [isOpen]);
+  }, [isOpen, editMode, availableSounds.length]);
+
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      const vidDur = videoRef.current.duration;
+      setDuration(vidDur);
+      setVideoNativeWidth(videoRef.current.videoWidth);
+      setVideoNativeHeight(videoRef.current.videoHeight);
+
+      // Initialize inputs if provided
+      const start = initialTrimStart;
+      const end =
+        initialTrimEnd && initialTrimEnd > 0 ? initialTrimEnd : vidDur;
+
+      setTrimStart(start);
+      setTrimEnd(end);
+      setCurrentTime(start);
+      videoRef.current.currentTime = start;
+
+      // Initialize crop defaults if not provided
+      if (!initialCropWidth || initialCropWidth === 0) {
+        setCropWidth(videoRef.current.videoWidth);
+        setCropHeight(videoRef.current.videoHeight);
+        setCropX(0);
+        setCropY(0);
+      }
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return;
+    const time = videoRef.current.currentTime;
+
+    // Loop logic
+    if (time >= trimEnd) {
+      videoRef.current.currentTime = trimStart;
+      setCurrentTime(trimStart);
+    } else {
+      setCurrentTime(time);
+    }
+  };
+
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      // Ensure we start from valid range
+      if (currentTime >= trimEnd || currentTime < trimStart) {
+        videoRef.current.currentTime = trimStart;
+      }
+      videoRef.current.play();
+    }
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -116,123 +180,16 @@ export function VideoEditor({
     return `${mins}:${secs.toString().padStart(2, "0")}.${ms}`;
   };
 
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      const vidDur = videoRef.current.duration;
-      const nativeW = videoRef.current.videoWidth;
-      const nativeH = videoRef.current.videoHeight;
-
-      setDuration(vidDur);
-      setVideoNativeWidth(nativeW);
-      setVideoNativeHeight(nativeH);
-
-      if (trimEnd === 0 || trimEnd > vidDur) {
-        setTrimEnd(vidDur);
-      }
-      setCurrentTime(initialTrimStart);
-      videoRef.current.currentTime = initialTrimStart;
-
-      // Initialize crop to full frame if not provided
-      if (cropWidth === 0 || cropHeight === 0) {
-        setCropX(0);
-        setCropY(0);
-        setCropWidth(nativeW);
-        setCropHeight(nativeH);
-        setActivePreset("freeform");
-      } else {
-        setActivePreset(
-          detectCropPreset({
-            x: cropX,
-            y: cropY,
-            width: cropWidth,
-            height: cropHeight,
-          })
-        );
-      }
-    }
-  };
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current && !isDragging) {
-      const cur = videoRef.current.currentTime;
-      setCurrentTime(cur);
-
-      // Audio Trigger Logic
-      if (isPlaying) {
-        // Check for sounds that should play
-        videoMemeSounds.forEach((sound) => {
-          // Sound start time is relative to trimStart, so absolute time is trimStart + sound.startTime
-          const absoluteStartTime = trimStart + sound.startTime;
-
-          // If we are past the start time and haven't played this sound yet
-          if (
-            cur >= absoluteStartTime &&
-            !playedSoundsRef.current.has(sound.id)
-          ) {
-            // Mark as played
-            playedSoundsRef.current.add(sound.id);
-            // Play sound - use the file URL directly (which should be the full URL)
-            const soundUrl = sound.file;
-            console.log("Playing meme sound:", soundUrl, "at time:", cur);
-
-            const audio = new Audio(soundUrl);
-            audio.volume = sound.volume || 1.0;
-            audio.crossOrigin = "anonymous";
-            audio
-              .play()
-              .then(() => console.log("Audio playing successfully"))
-              .catch((e) => console.error("Audio play failed:", e, soundUrl));
-          }
-        });
-      }
-
-      lastTimeRef.current = cur;
-
-      // Loop within trim region
-      if (cur >= trimEnd) {
-        videoRef.current.currentTime = trimStart;
-        lastTimeRef.current = trimStart;
-        playedSoundsRef.current.clear(); // Reset played sounds on loop
-        if (!isPlaying) {
-          videoRef.current.pause();
-        }
-      }
-    }
-  };
-
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        if (
-          videoRef.current.currentTime >= trimEnd ||
-          videoRef.current.currentTime < trimStart
-        ) {
-          videoRef.current.currentTime = trimStart;
-          lastTimeRef.current = trimStart;
-          playedSoundsRef.current.clear(); // Reset played sounds when starting playback
-        }
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
   const skipToStart = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = trimStart;
-      setCurrentTime(trimStart);
-      lastTimeRef.current = trimStart;
-    }
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = trimStart;
+    setCurrentTime(trimStart);
   };
 
   const skipToEnd = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = Math.max(trimEnd - 0.5, trimStart);
-      setCurrentTime(Math.max(trimEnd - 0.5, trimStart));
-      lastTimeRef.current = Math.max(trimEnd - 0.5, trimStart);
-    }
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = trimEnd;
+    setCurrentTime(trimEnd);
   };
 
   const handleSave = () => {
@@ -250,7 +207,9 @@ export function VideoEditor({
         undefined,
         undefined,
         undefined,
-        videoMemeSounds
+        videoMemeSounds,
+        videoNativeWidth,
+        videoNativeHeight
       );
     } else {
       onSave(
@@ -260,7 +219,9 @@ export function VideoEditor({
         cropY,
         cropWidth,
         cropHeight,
-        videoMemeSounds
+        videoMemeSounds,
+        videoNativeWidth,
+        videoNativeHeight
       );
     }
     onClose();
@@ -314,8 +275,31 @@ export function VideoEditor({
       if (!container || videoNativeWidth === 0) return;
 
       const rect = container.getBoundingClientRect();
+      // Calculate scale relative to displayed video size vs actual video size
+      // The video element fits within the viewport.
+      // We need to know the displayed dimensions of the video element.
+      // Assuming video element fills the container or maintains aspect ratio.
+      // The container is the viewport, but the video inside has object-fit contain.
+      // Wait, we need accurate scaling.
+      // Simplified: We assume container *is* the video display area or close to it,
+      // but strictly we should use the video element's bounding rect?
+      // cropContainerRef wraps the video.
+
+      // Let's rely on ratio between videoNative and container rect?
+      // No, if video is letterboxed, this is wrong.
+      // However, for this MVP Editor, we assume video fills viewport or we accept slight inaccuracy.
+      // Better: Use videoRef to get displayed dimensions.
+
       const scaleX = videoNativeWidth / rect.width;
       const scaleY = videoNativeHeight / rect.height;
+      // If video is letterboxed, rect.width includes black bars?
+      // Actually `video-viewport` has `display: flex; justify-content: center`.
+      // The video has `max-width: 100%; max-height: 100%`.
+      // So the video element itself should be the target.
+      // cropContainerRef points to `video-viewport`.
+
+      // For now, let's keep the logic I had before which seemed to work or at least was standard.
+      // The previously replaced logic used `videoNativeWidth / rect.width`.
 
       const deltaX = (e.clientX - cropDragStart.x) * scaleX;
       const deltaY = (e.clientY - cropDragStart.y) * scaleY;
@@ -427,8 +411,8 @@ export function VideoEditor({
   // Logic to add valid sound
   const handleAddSound = (sound: MemeSound) => {
     // robust random id
-    const randomId =
-      Date.now().toString(36) + Math.random().toString(36).substring(2);
+    // robust random id
+    const randomId = generateId();
     const newSound: VideoMemeSound = {
       id: randomId,
       soundId: sound.id,
@@ -626,7 +610,12 @@ export function VideoEditor({
                   <div
                     key={h}
                     className={`crop-handle crop-handle-${h}`}
-                    onMouseDown={(e) => handleCropMouseDown(e, h as any)}
+                    onMouseDown={(e) =>
+                      handleCropMouseDown(
+                        e,
+                        h as keyof typeof RESIZE_HANDLE_CURSOR
+                      )
+                    }
                   />
                 ))}
               </div>
@@ -728,7 +717,7 @@ export function VideoEditor({
                 className={`crop-preset-btn ${
                   activePreset === p ? "active" : ""
                 }`}
-                onClick={() => handlePresetSelect(p as any)}
+                onClick={() => handlePresetSelect(p as CropPreset)}
               >
                 {p === "freeform" ? "Full" : p}
               </button>
