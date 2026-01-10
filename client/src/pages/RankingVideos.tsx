@@ -605,7 +605,7 @@ export default function RankingVideos() {
                         hasFailed && "has-error"
                       )}
                     >
-                      <div className="flex items-center gap-2 w-full">
+                      <div className="flex items-center mb-2 gap-2 w-full">
                         <Badge
                           variant={hasFailed ? "destructive" : "default"}
                           className={cn(
@@ -690,6 +690,7 @@ export default function RankingVideos() {
                         }
                         placeholder={`Video ${video.videoNumber} Title`}
                         disabled={false}
+                        size={52}
                       />
                     </SortableVideoCard>
                   );
