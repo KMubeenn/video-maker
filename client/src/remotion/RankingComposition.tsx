@@ -22,6 +22,14 @@ const normalizeColor = (color: string | undefined): string => {
   return map[color] || color;
 };
 
+// Check if text is primarily emoji
+const isEmojiText = (text: string): boolean => {
+  // Emoji regex pattern
+  const emojiPattern =
+    /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F910}-\u{1F96B}\u{1F980}-\u{1F9E0}]/u;
+  return emojiPattern.test(text);
+};
+
 const isSocialUrl = (url: string) => {
   return (
     url.includes("tiktok.com") ||
@@ -38,7 +46,8 @@ const ParsedTextToken: React.FC<{
   text: string;
   isEmoji: boolean;
   fontSize: number;
-}> = ({ segment, text, isEmoji, fontSize }) => {
+  borderColor?: string;
+}> = ({ segment, text, isEmoji, fontSize, borderColor = "#FFD700" }) => {
   const color = normalizeColor(segment.color);
 
   // Emoji rendering
@@ -59,7 +68,8 @@ const ParsedTextToken: React.FC<{
         color,
         fontFamily: "Impact, Arial, sans-serif",
         fontSize,
-        WebkitTextStroke: hasBorder ? "4px #FFD700" : "none",
+        letterSpacing: "2px", // Add spacing between letters
+        WebkitTextStroke: hasBorder ? `4px ${borderColor}` : "none",
         paintOrder: "stroke fill",
         marginRight: 4,
       }}
@@ -72,7 +82,8 @@ const ParsedTextToken: React.FC<{
 const RenderRichText: React.FC<{
   segments: TextSegment[];
   style?: React.CSSProperties;
-}> = ({ segments, style }) => {
+  borderColor?: string;
+}> = ({ segments, style, borderColor }) => {
   const defaultFontSize = segments[0]?.fontSize || 64;
 
   return (
@@ -89,8 +100,9 @@ const RenderRichText: React.FC<{
           key={i}
           segment={seg}
           text={seg.text}
-          isEmoji={false}
+          isEmoji={isEmojiText(seg.text)}
           fontSize={seg.fontSize || defaultFontSize}
+          borderColor={borderColor}
         />
       ))}
     </div>
@@ -109,8 +121,11 @@ const ClipLayer: React.FC<{ clip: EditedClip }> = ({ clip }) => {
     if (!hasCrop || !clip.crop) {
       return {
         wrapperStyle: {
+          position: "absolute" as const,
+          top: titleHeight, // Position video below the title
+          left: 0,
           width: "100%",
-          height: "100%",
+          height: videoAreaHeight, // Use remaining height
           overflow: "hidden" as const,
         },
         videoStyle: {
@@ -290,6 +305,7 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
                 fontFamily: "Impact, Arial, sans-serif",
                 fontSize: 52,
                 color: "#ffff00", // Yellow highlight
+                WebkitTextStroke: "3px black",
               }}
             >
               {item.clip.slotIndex}.
@@ -304,9 +320,10 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
               // Actually RealtimePreview logic says: "color = isCurrentActive ? '#ffff00' : 'white'"
               // And "text: rankingVideo.title.map(t => ({...t, color: t.color || color}))"
               // So if t.color is set, keep it, else use yellow.
+              borderColor="black" // Black border for ranking titles
               style={{
                 position: "absolute",
-                top: yPos + 4,
+                top: yPos + 2,
                 left: 90,
                 width: 700,
                 justifyContent: "flex-start",
