@@ -9,7 +9,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="RankingVideo"
         component={RankingComposition}
-        durationInFrames={300} // Default, will be overridden by input props in execution
+        durationInFrames={300} // Default fallback
         fps={30}
         width={1080}
         height={1920}
@@ -20,6 +20,17 @@ export const RemotionRoot: React.FC = () => {
             mainTitle: [],
             slots: [],
           } as RenderSpec,
+        }}
+        calculateMetadata={({ props }) => {
+          // Calculate actual duration from the spec
+          const totalFrames = props.spec.sequence.reduce(
+            (sum, item) => sum + item.durationInFrames,
+            0
+          );
+          return {
+            durationInFrames: totalFrames || 300, // Fallback to 300 if empty
+            fps: props.spec.fps || 30,
+          };
         }}
       />
     </>

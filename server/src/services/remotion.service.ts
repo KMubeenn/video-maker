@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { RenderSpec } from "../types/ranking.js";
@@ -53,7 +54,7 @@ export async function renderRankingVideo(
     outputLocation: outputPath,
     inputProps: { spec },
     // Optimize for server environment
-    concurrency: require("os").cpus().length,
+    concurrency: os.cpus().length,
     crf: 20, // Quality level (standard for web)
   });
 

@@ -110,32 +110,7 @@ export const generateFullPreview = async (
   return res.data;
 };
 
-export interface PreparePreviewResponse {
-  success: boolean;
-  videos: Array<{
-    id: number;
-    url: string;
-    originalUrl: string;
-    duration: number;
-    width: number;
-    height: number;
-  }>;
-  warnings?: {
-    message: string;
-    failedVideos: Array<{
-      url: string;
-      index: number;
-      error: string;
-      platform: string;
-    }>;
-  };
-}
-
-export const preparePreview = async (
-  videos: Array<{ url: string; id: number }>
-): Promise<PreparePreviewResponse> => {
-  const res = await axios.post(`${RANKING_API_URL}/prepare-preview`, {
-    videos,
-  });
+export const resolveVideoUrl = async (url: string, index: number) => {
+  const res = await axios.post(`${API_URL}/resolve`, { url, index });
   return res.data;
 };

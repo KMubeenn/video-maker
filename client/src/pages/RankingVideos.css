@@ -58,11 +58,11 @@
 .preview-column {
   position: sticky;
   top: 1rem;
-  height: 95vh;
+  max-height: calc(100vh - 2rem);
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
-  padding: 8px;
-  overflow: hidden;
+  padding: 16px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   background: hsl(var(--card));
