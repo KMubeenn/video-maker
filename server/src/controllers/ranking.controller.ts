@@ -102,6 +102,7 @@ export async function preparePreview(req: Request, res: Response) {
 }
 
 export interface VideoRankInput {
+  videoNumber?: number; // Immutable display number from client (optional for backward compatibility)
   url: string;
   title: TextSegment[];
   trimStart?: number;
@@ -304,12 +305,11 @@ export async function createRanking(req: Request, res: Response) {
  */
 export async function generateFullPreview(req: Request, res: Response) {
   try {
-    const { mainTitle, videos, width, height, firstToPlay } = req.body as {
+    const { mainTitle, videos, width, height } = req.body as {
       mainTitle: TextSegment[];
       videos: VideoRankInput[];
       width?: number;
       height?: number;
-      firstToPlay?: number; // Index of video to play first (must be >= 1, not rank #1)
     };
 
     // Validation (same as createRanking)
@@ -384,17 +384,24 @@ export async function generateFullPreview(req: Request, res: Response) {
       `Successfully downloaded ${downloadResults.successful.length} videos`
     );
 
-    // Prepare ranking video inputs (maintaining original order with successful downloads only)
+    // Use videos in exact array order as received (user-defined via drag-and-drop)
+    console.log("Using user-defined video order (top to bottom)");
     const rankingInputs = downloadResults.successful.map((downloaded) => {
       // Find the original index of this video
       const originalIndex = downloaded.index;
       const originalVideo = videos[originalIndex];
+
+      // CRITICAL: rank must be the videoNumber (immutable slot), not array index
+      console.log(
+        `[RankingController] Video ${originalIndex}: videoNumber=${originalVideo?.videoNumber}, title="${originalVideo?.title[0]?.text}"`
+      );
+
       return {
         filePath: downloaded.filePath,
         title: originalVideo?.title || [
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
-        rank: originalIndex + 1,
+        rank: originalVideo?.videoNumber || originalIndex + 1, // Use immutable videoNumber as rank for slot positioning
         trimStart: originalVideo?.trimStart,
         trimEnd: originalVideo?.trimEnd,
         // Include crop values for FFmpeg
@@ -411,41 +418,18 @@ export async function generateFullPreview(req: Request, res: Response) {
       };
     });
 
-    // Shuffle video order: randomize positions 2-N, keep rank 1 for last
-    console.log("Shuffling video playback order (rank 1 plays last)...");
-
-    // Separate rank 1 video from the rest
-    const rank1Video = rankingInputs[0]!; // Rank 1 is at index 0 (guaranteed to exist)
-    const otherVideos = rankingInputs.slice(1); // Ranks 2, 3, 4, etc.
-
-    // Deterministic shuffle to match frontend "random" look
-    // Using simple hash sort based on rank (equivalent to id in frontend)
-    // Formula: ((rank * 13 + 7) % 5)
-    let sortedOthers = [...otherVideos].sort((a, b) => {
-      const valA = (a.rank * 13 + 7) % 5;
-      const valB = (b.rank * 13 + 7) % 5;
-      return valA - valB;
+    console.log("Ranking inputs with videoNumber:");
+    rankingInputs.forEach((input, idx) => {
+      console.log(
+        `  [${idx}] rank=${input.rank}, title=${input.title[0]?.text}`
+      );
     });
 
-    // If firstToPlay is specified (and valid), move that video to the front
-    if (firstToPlay !== undefined && firstToPlay !== null && firstToPlay >= 1) {
-      // firstToPlay is the 0-based index in the original videos array
-      // rank = index + 1
-      const targetRank = firstToPlay + 1;
-      const selectedVideo = sortedOthers.find((v) => v.rank === targetRank);
-      if (selectedVideo) {
-        // Remove from list and prepend
-        sortedOthers = sortedOthers.filter((v) => v.rank !== targetRank);
-        sortedOthers.unshift(selectedVideo);
-        console.log(`User selected rank #${targetRank} to play first`);
-      }
-    }
-
-    // Reconstruct array: sorted videos + rank 1 at the end
-    const shuffledInputs = [...sortedOthers, rank1Video];
+    // Pass videos to FFmpeg in exact array order
+    const orderedInputs = rankingInputs;
 
     console.log(
-      `Playback order: ${shuffledInputs.map((v) => `#${v.rank}`).join(" → ")}`
+      `Playback order: ${orderedInputs.map((v) => `#${v.rank}`).join(" → ")}`
     );
 
     // Create preview video (same as final, but saved in previews folder)
@@ -456,7 +440,7 @@ export async function generateFullPreview(req: Request, res: Response) {
     const outputPath = await createRankingVideo(
       {
         mainTitle,
-        videos: shuffledInputs, // Use shuffled order
+        videos: orderedInputs, // Use exact user-defined order
         ...(width && { width }),
         ...(height && { height }),
       },

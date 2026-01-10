@@ -13,3 +13,6 @@ export * from "./utils/index.js";
 
 // Layout Engine
 export * from "./layout/index.js";
+
+// Timeline Builder
+export * from "./timeline.js";
