@@ -16,6 +16,7 @@ interface RichTextInputProps {
   label?: string;
   disabled?: boolean;
   mainTitle?: boolean;
+  size?: number;
 }
 
 export function RichTextInput({
@@ -25,9 +26,10 @@ export function RichTextInput({
   label,
   disabled = false,
   mainTitle = false,
+  size = 64,
 }: RichTextInputProps) {
   const [currentColor, setCurrentColor] = useState("white");
-  const [currentSize, setCurrentSize] = useState(64); // Default to Medium (64px)
+  const [currentSize, setCurrentSize] = useState(size); // Default to Medium (64px)
   const [currentBorder, setCurrentBorder] = useState(true); // Enable border by default
   const [editingText, setEditingText] = useState("");
   const [isWordMode, setIsWordMode] = useState(false);
