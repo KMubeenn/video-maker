@@ -1,4 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
+import { Player, type PlayerRef } from "@remotion/player";
+import { RankingComposition } from "../remotion/RankingComposition";
 import {
   DndContext,
   closestCenter,
@@ -93,6 +95,37 @@ export default function RankingVideos() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  // Build spec for Remotion Player
+  const renderSpec = useMemo(
+    () => buildRenderSpec(videos, mainTitle),
+    [videos, mainTitle]
+  );
+  const durationInFrames = useMemo(() => {
+    if (renderSpec.sequence.length === 0) return 30;
+    const lastItem = renderSpec.sequence[renderSpec.sequence.length - 1];
+    return lastItem.startFrame + lastItem.durationInFrames;
+  }, [renderSpec]);
+
+  // Sync Logic
+  const playerRef = useRef<PlayerRef>(null);
+
+  const handlePreviewTimeUpdate = useCallback((time: number) => {
+    if (playerRef.current) {
+      const frame = Math.round(time * 30);
+      playerRef.current.seekTo(frame);
+    }
+  }, []);
+
+  const handlePreviewPlayState = useCallback((isPlaying: boolean) => {
+    if (playerRef.current) {
+      if (isPlaying) {
+        playerRef.current.play();
+      } else {
+        playerRef.current.pause();
+      }
+    }
+  }, []);
 
   // Single preview state
   const [previewState, setPreviewState] = useState<PreviewState>({
@@ -331,7 +364,7 @@ export default function RankingVideos() {
     try {
       // Build RenderSpec for deterministic timing
       const fps = 30; // FFmpeg default
-      const spec = buildRenderSpec(videos, fps);
+      const spec = buildRenderSpec(videos, mainTitle, fps);
 
       const response = await generateFullPreview(
         mainTitle,
@@ -821,6 +854,8 @@ export default function RankingVideos() {
               videos={videos}
               width={width}
               height={height}
+              onTimeUpdate={handlePreviewTimeUpdate}
+              onPlayStateChange={handlePreviewPlayState}
             />
           ) : (
             <VideoPreviewPanel
@@ -832,6 +867,32 @@ export default function RankingVideos() {
               onGeneratePreview={handleGeneratePreview}
             />
           )}
+
+          {/* Remotion Verification Player */}
+          <div className="mt-8 border-t pt-8">
+            <h3 className="text-lg font-semibold mb-4">
+              Remotion Verification (Test)
+            </h3>
+            <div className="aspect-[9/16] w-full max-w-[360px] mx-auto bg-black border rounded-lg overflow-hidden shadow-xl">
+              <Player
+                component={RankingComposition}
+                inputProps={{ spec: renderSpec }}
+                durationInFrames={Math.max(1, durationInFrames)}
+                compositionWidth={1080}
+                compositionHeight={1920}
+                fps={30}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                }}
+                ref={playerRef}
+                controls
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              This player renders the same RenderSpec as the export.
+            </p>
+          </div>
         </div>
       </div>
 

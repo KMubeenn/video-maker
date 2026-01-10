@@ -62,24 +62,17 @@ const ParsedTextToken: React.FC<{
 
 const RenderRichText: React.FC<{
   segments: TextSegment[];
-  type: "main" | "ranking";
-  width: number;
-}> = ({ segments, type }) => {
-  const defaultFontSize = segments[0]?.fontSize || (type === "main" ? 64 : 52);
+  style?: React.CSSProperties;
+}> = ({ segments, style }) => {
+  const defaultFontSize = segments[0]?.fontSize || 64;
 
   return (
     <div
       style={{
-        position: "absolute",
-        width: type === "main" ? 900 : 700,
-        left: "50%",
-        top: type === "main" ? 180 : 0,
-        transform: "translateX(-50%)",
-        textAlign: "center",
         display: "flex",
         flexWrap: "wrap",
-        justifyContent: "center",
         alignContent: "center",
+        ...style,
       }}
     >
       {segments.map((seg, i) => (
@@ -163,17 +156,6 @@ const ClipLayer: React.FC<{ clip: EditedClip }> = ({ clip }) => {
         />
       </div>
 
-      {/* Main Title Overlay */}
-      {clip.title && (
-        <AbsoluteFill>
-          <RenderRichText
-            segments={clip.title}
-            type="main"
-            width={canvasWidth}
-          />
-        </AbsoluteFill>
-      )}
-
       {/* Audio Overlays */}
       {clip.audio?.map((track, i) => (
         <Sequence key={`audio-${i}`} from={Math.round(track.start * 30)}>
@@ -187,17 +169,117 @@ const ClipLayer: React.FC<{ clip: EditedClip }> = ({ clip }) => {
 export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
   spec,
 }) => {
+  const { height: canvasHeight } = useVideoConfig();
+
+  // Layout Constants
+  const rankingItemHeight = 200;
+  const titleHeight = 300;
+  const videoHeight = canvasHeight - titleHeight;
+  const totalRankingHeight = (spec.slots?.length || 0) * rankingItemHeight;
+  const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
+
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
+      {/* Layer 0: Video Sequence */}
       {spec.sequence.map((item) => (
         <Sequence
-          key={item.clip.id}
+          key={`clip-${item.clip.id}`}
           from={item.startFrame}
           durationInFrames={item.durationInFrames}
         >
           <ClipLayer clip={item.clip} />
         </Sequence>
       ))}
+
+      {/* Layer 1: Main Title (Always Visible) */}
+      {spec.mainTitle && (
+        <AbsoluteFill>
+          <RenderRichText
+            segments={spec.mainTitle}
+            style={{
+              position: "absolute",
+              width: 900,
+              left: "50%",
+              top: 180,
+              transform: "translateX(-50%)",
+              justifyContent: "center",
+              textAlign: "center",
+            }}
+          />
+        </AbsoluteFill>
+      )}
+
+      {/* Layer 2: Static Slot Numbers (White, Always Visible) */}
+      <AbsoluteFill>
+        {spec.slots?.map((slot) => {
+          const yPos = rankingStartY + (slot.slotIndex - 1) * rankingItemHeight;
+          return (
+            <div
+              key={`static-slot-${slot.id}`}
+              style={{
+                position: "absolute",
+                top: yPos,
+                left: 30,
+                fontFamily: "Impact, Arial, sans-serif",
+                fontSize: 52,
+                color: "white",
+              }}
+            >
+              {slot.slotIndex}.
+            </div>
+          );
+        })}
+      </AbsoluteFill>
+
+      {/* Layer 3: Active Slot Highlighting (Yellow Number + Title) */}
+      {spec.sequence.map((item) => {
+        const yPos =
+          rankingStartY + (item.clip.slotIndex - 1) * rankingItemHeight;
+
+        // Only show if title exists
+        if (!item.clip.title) return null;
+
+        return (
+          <Sequence
+            key={`highlight-${item.clip.id}`}
+            from={item.startFrame}
+            durationInFrames={item.durationInFrames}
+          >
+            {/* Highlight Number */}
+            <div
+              style={{
+                position: "absolute",
+                top: yPos,
+                left: 30,
+                fontFamily: "Impact, Arial, sans-serif",
+                fontSize: 52,
+                color: "#ffff00", // Yellow highlight
+              }}
+            >
+              {item.clip.slotIndex}.
+            </div>
+
+            {/* Ranking Title */}
+            <RenderRichText
+              segments={item.clip.title.map((t) => ({
+                ...t,
+                color: t.color === "white" ? "#ffff00" : t.color,
+              }))} // Inherit yellow color priority?
+              // Actually RealtimePreview logic says: "color = isCurrentActive ? '#ffff00' : 'white'"
+              // And "text: rankingVideo.title.map(t => ({...t, color: t.color || color}))"
+              // So if t.color is set, keep it, else use yellow.
+              style={{
+                position: "absolute",
+                top: yPos + 4,
+                left: 90,
+                width: 700,
+                justifyContent: "flex-start",
+                textAlign: "left",
+              }}
+            />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };

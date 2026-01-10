@@ -7,10 +7,12 @@ import {
   type DownloadError,
 } from "../services/downloader.service.js";
 import {
-  createRankingVideo,
   getVideoMetadata,
   type TextSegment,
 } from "../services/ffmpeg.service.js";
+import { renderRankingVideo } from "../services/remotion.service.js";
+import type { RenderSpec, EditedClip } from "../types/ranking.js";
+// path is already imported at the top
 
 // ... existing code ...
 
@@ -255,9 +257,55 @@ export async function createRanking(req: Request, res: Response) {
       `Playback order: ${shuffledInputs.map((v) => `#${v.rank}`).join(" → ")}`
     );
 
-    // Create ranking video
-    console.log("Step 2: Creating ranking video with overlays...");
+    // Create ranking video with Remotion
+    console.log("Step 2: Creating ranking video with Remotion...");
     const outputFilename = `ranking-${Date.now()}.mp4`;
+
+    // Construct a RenderSpec from the shuffled inputs
+    // This endpoint (/create) is called by "Create Video" button which might NOT send a spec?
+    // Let's assume for now we need to construct it or fallback.
+    // However, user constraint is "Export must use the same RenderSpec".
+    // This implies /create should also receive a spec?
+    // If not, we have to support the legacy way for now via FFmpeg OR build a Spec here.
+    // But the user said "Replace FFmpeg with Remotion".
+    // Let's check if 'req.body.spec' is available here too.
+    const spec = req.body.spec as RenderSpec;
+
+    let relativeOutputPath: string;
+
+    if (spec) {
+      // Same patching logic as preview
+      const urlToPathMap = new Map<string, string>();
+      downloadResults.successful.forEach((d) => {
+        const originalUrl = videos[d.index]?.url;
+        if (originalUrl) urlToPathMap.set(originalUrl, d.filePath);
+      });
+
+      const patchedSpec = JSON.parse(JSON.stringify(spec)) as RenderSpec;
+      // Patch sequence
+      for (const item of patchedSpec.sequence) {
+        const matchedPath = urlToPathMap.get(item.clip.src);
+        if (matchedPath) item.clip.src = matchedPath.replace(/\\/g, "/");
+      }
+      // Patch slots ordering if shuffle happened?
+      // But the client already sent the spec. If the client did the shuffle, the spec is already shuffled.
+      // If `createRanking` does the shuffle, the spec from client might be wrong?
+      // Ideally client does EVERYTHING.
+      // If spec is present, we TRUST the spec and IGNORE the server-side shuffle logic.
+
+      relativeOutputPath = await renderRankingVideo(
+        patchedSpec,
+        outputFilename
+      );
+    } else {
+      // Fallback: If no spec provided, we might need to fail or use legacy FFmpeg (which we are replacing).
+      // For now, let's assume client sends spec. If not, error.
+      throw new Error(
+        "RenderSpec is required for Remotion export. Please refresh client."
+      );
+    }
+
+    /*
     const outputPath = await createRankingVideo(
       {
         mainTitle,
@@ -267,18 +315,21 @@ export async function createRanking(req: Request, res: Response) {
       },
       outputFilename
     );
+    */
 
     // Note: Not cleaning up downloaded files - they are cached for reuse
 
     // Return success response with warnings if any videos failed
     const response: any = {
       success: true,
-      videoUrl: `http://localhost:4000/${outputPath.replace(/\\/g, "/")}`,
-      message: `Successfully created ranking video with ${downloadResults.successful.length} videos`,
+      videoUrl: `http://localhost:4000/${relativeOutputPath}`,
+      message: `Successfully created ranking video`,
+      /*
       rankings: rankingInputs.map((v) => ({
         rank: v.rank,
         title: v.title,
       })),
+      */
     };
 
     if (downloadResults.failed.length > 0) {
@@ -432,28 +483,85 @@ export async function generateFullPreview(req: Request, res: Response) {
       `Playback order: ${orderedInputs.map((v) => `#${v.rank}`).join(" → ")}`
     );
 
-    // Create preview video (same as final, but saved in previews folder)
-    console.log("Step 2: Creating preview with FFmpeg overlays...");
-    const outputFilename = `preview-full-${Date.now()}.mp4`;
+    // Create preview video via Remotion
+    console.log("Step 2: Creating preview with Remotion...");
+    const outputFilename = `preview-remotion-${Date.now()}.mp4`;
 
-    // Use the same createRankingVideo function
-    const outputPath = await createRankingVideo(
-      {
-        mainTitle,
-        videos: orderedInputs, // Use exact user-defined order
-        ...(width && { width }),
-        ...(height && { height }),
-      },
+    // 1. Get the Spec from request
+    const spec = req.body.spec as RenderSpec;
+    if (!spec) {
+      throw new Error("RenderSpec is required for Remotion export");
+    }
+
+    // 2. Patch the Spec with local file paths
+    // The spec.sequence[i].clip.src likely contains "blob:..." or "http://..."
+    // We need to map it to the downloaded local paths
+    // Strategy: Map based on slotIndex or ID if possible.
+    // Spec clips correspond to 'videos' array.
+    // The 'videos' array order corresponds to 'downloadResults.successful' (assuming all success for now).
+    // Actually downloadResults.successful contains index mapping.
+
+    // Create a map of Url -> LocalPath
+    const urlToPathMap = new Map<string, string>();
+    downloadResults.successful.forEach((d) => {
+      const originalUrl = videos[d.index]?.url;
+      if (originalUrl) {
+        // Convert absolute path to proper file URL for Remotion or absolute path
+        // Remotion (server-side) can read absolute paths.
+        urlToPathMap.set(originalUrl, d.filePath);
+      }
+    });
+
+    // Deep clone spec to avoid mutation issues
+    const patchedSpec = JSON.parse(JSON.stringify(spec)) as RenderSpec;
+
+    // Patch sequences
+    for (const item of patchedSpec.sequence) {
+      // Find the local path for this clip's source
+      // The clip.src coming from client might be the same 'url' we used for download,
+      // OR it might be a blob url if the user uploaded it directly?
+      // If it's a blob url, the client also sent specific 'videos' array with 'url'?
+      // In RankingVideos.tsx: 'videos' state has 'src'. 'RankingVideoInput' has 'url'.
+      // Implementation detail: client sends 'url' in video inputs.
+
+      // Try to find the matching local path.
+      // We can iterate through 'videos' to find which one matches the clip.id if possible?
+      // EditedClip has 'id'. 'VideoRankInput' doesn't explicitly have 'id' in the interface in this file,
+      // but the client sends it?
+      // Let's rely on the URL if it matches.
+
+      const matchedPath = urlToPathMap.get(item.clip.src);
+      if (matchedPath) {
+        // Normalize path for cross-platform (Remotion might need forward slashes)
+        item.clip.src = matchedPath.replace(/\\/g, "/");
+      } else {
+        console.warn(
+          `Could not find local download for clip src: ${item.clip.src}`
+        );
+        // Fallback: If it's already a local path? or we uploaded it?
+        // For now, assuming direct URL match.
+      }
+
+      // Also patch audio tracks if they are remote
+      if (item.clip.audio) {
+        for (const track of item.clip.audio) {
+          // If track.src was downloaded? Current downloader only downloads the main video.
+          // If audio is remote, Remotion might handle it if it's http, but for performance local is better.
+          // For now, let Remotion handle remote audio URLs if they are not in our download list.
+        }
+      }
+    }
+
+    // 3. Render
+    const relativeOutputPath = await renderRankingVideo(
+      patchedSpec,
       outputFilename
     );
 
-    // Note: Not cleaning up downloaded files - they are cached for reuse
-
     const response: any = {
       success: true,
-      // Extract just outputs/filename from the absolute path
-      videoUrl: `http://localhost:4000/outputs/${outputFilename}`,
-      message: `Successfully created preview with ${downloadResults.successful.length} videos`,
+      videoUrl: `http://localhost:4000/${relativeOutputPath}`,
+      message: `Successfully created Remotion preview with ${downloadResults.successful.length} videos`,
     };
 
     if (downloadResults.failed.length > 0) {

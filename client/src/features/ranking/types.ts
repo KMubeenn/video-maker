@@ -34,6 +34,11 @@ export type EditedClip = {
  */
 export type RenderSpec = {
   fps: number;
+  mainTitle: TextSegment[];
+  slots: Array<{
+    slotIndex: number;
+    id: string; // used for keying
+  }>;
   sequence: Array<{
     clip: EditedClip;
     startFrame: number;

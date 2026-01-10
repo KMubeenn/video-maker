@@ -1,3 +1,4 @@
+import type { TextSegment } from "../../../components/RichTextInput";
 import type { EditedClip, RenderSpec } from "../types";
 
 /**
@@ -9,9 +10,14 @@ import type { EditedClip, RenderSpec } from "../types";
  */
 export function buildRenderSpec(
   clips: EditedClip[],
+  mainTitle: TextSegment[],
   fps: number = 30
 ): RenderSpec {
   const sequence: RenderSpec["sequence"] = [];
+  const slots: RenderSpec["slots"] = clips.map((c) => ({
+    slotIndex: c.slotIndex,
+    id: c.id,
+  }));
   let currentStartFrame = 0;
 
   for (const clip of clips) {
@@ -44,6 +50,8 @@ export function buildRenderSpec(
 
   return {
     fps,
+    mainTitle,
+    slots,
     sequence,
   };
 }

@@ -14,7 +14,12 @@ export const RemotionRoot: React.FC = () => {
         width={1080}
         height={1920}
         defaultProps={{
-          spec: { fps: 30, sequence: [] } as RenderSpec,
+          spec: {
+            fps: 30,
+            sequence: [],
+            mainTitle: [],
+            slots: [],
+          } as RenderSpec,
         }}
       />
     </>

@@ -24,6 +24,8 @@ interface RealtimePreviewProps {
   videos: EditedClip[];
   width: number;
   height: number;
+  onTimeUpdate?: (time: number) => void;
+  onPlayStateChange?: (isPlaying: boolean) => void;
 }
 
 interface LoadedAsset {
@@ -40,6 +42,8 @@ export function RealtimePreview({
   videos,
   width,
   height,
+  onTimeUpdate,
+  onPlayStateChange,
 }: RealtimePreviewProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -445,6 +449,7 @@ export function RealtimePreview({
       timelineRef.current.duration > 0
     ) {
       setIsPlaying(false);
+      onPlayStateChange?.(false);
       stopAudio();
       return;
     }
@@ -520,6 +525,7 @@ export function RealtimePreview({
 
         if (newTime > duration) {
           setIsPlaying(false);
+          onPlayStateChange?.(false);
           stopAudio();
           setCurrentTime(duration);
           return;
@@ -530,6 +536,7 @@ export function RealtimePreview({
           const next = prev + 1 / 60;
           if (next > duration) {
             setIsPlaying(false);
+            onPlayStateChange?.(false);
             stopAudio();
             return duration;
           }
@@ -662,8 +669,10 @@ export function RealtimePreview({
       ) {
         audioContextRef.current.suspend();
       }
+      onPlayStateChange?.(false);
     } else {
       setIsPlaying(true);
+      onPlayStateChange?.(true);
       if (audioContextRef.current) {
         if (audioContextRef.current.state === "suspended") {
           audioContextRef.current.resume();
@@ -681,6 +690,7 @@ export function RealtimePreview({
     const pos = (e.clientX - rect.left) / rect.width;
     const newTime = pos * timeline.duration;
     setCurrentTime(newTime);
+    onTimeUpdate?.(newTime);
     if (isPlaying) {
       stopAudio();
       if (audioContextRef.current) {
