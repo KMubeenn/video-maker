@@ -2,20 +2,44 @@
 // Re-exports and feature-specific type extensions
 
 import type { TextSegment } from "../../components/RichTextInput";
-import type { VideoMemeSound } from "../../types/timeline";
-import type { RankingVideoInput } from "../../api/video.api";
 
 /**
- * Extended VideoInput for the ranking feature.
- * Includes all fields from RankingVideoInput plus UI-specific state.
+ * Audio track for a clip (e.g., meme sound).
  */
-export interface VideoInput
-  extends Omit<RankingVideoInput, "title" | "memeSounds"> {
-  id: number; // Stable unique ID for drag-and-drop and React keys
-  videoNumber: number; // Immutable display number (1-6), never changes on reorder
-  title: TextSegment[];
-  memeSounds?: VideoMemeSound[];
-}
+export type AudioTrack = {
+  src: string;
+  start: number;
+  volume?: number;
+};
+
+/**
+ * Strict data model for a single edited clip.
+ * Single source of truth for preview and export.
+ */
+export type EditedClip = {
+  id: string;
+  src: string;
+  duration: number; // Duration of the source clip in seconds (0 if unknown/default)
+  trim?: { start: number; end: number };
+  crop?: { x: number; y: number; width: number; height: number };
+  audio?: AudioTrack[]; // Accommodate multiple audio tracks (meme sounds)
+  title?: TextSegment[]; // Accommodate rich text title
+  resolution?: { width: number; height: number }; // Native resolution for accurate rendering
+  slotIndex: number; // Display number (1-based)
+};
+
+/**
+ * Specification for rendering the final video.
+ * Calculated purely from EditedClip data.
+ */
+export type RenderSpec = {
+  fps: number;
+  sequence: Array<{
+    clip: EditedClip;
+    startFrame: number;
+    durationInFrames: number;
+  }>;
+};
 
 /**
  * State for the preview panel.
@@ -40,7 +64,7 @@ export interface PreviewState {
  */
 export interface PreviewProps {
   mainTitle: TextSegment[];
-  videos: VideoInput[];
+  videos: EditedClip[];
   width: number;
   height: number;
   previewState: PreviewState;
@@ -50,16 +74,17 @@ export interface PreviewProps {
 /**
  * Default empty video input factory.
  */
-export function createEmptyVideoInput(
-  id: number,
-  videoNumber: number
-): VideoInput {
+export function createEmptyEditedClip(
+  id: string,
+  slotIndex: number
+): EditedClip {
   return {
     id,
-    videoNumber,
-    url: "",
+    slotIndex,
+    src: "",
+    duration: 0,
     title: [{ text: "", color: "white", fontSize: 52 }],
-    memeSounds: [],
+    audio: [],
   };
 }
 

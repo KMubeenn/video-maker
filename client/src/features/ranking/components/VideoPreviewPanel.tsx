@@ -18,7 +18,8 @@ export function VideoPreviewPanel({
     mainTitle.length > 0 &&
     mainTitle[0].text.trim() !== "" &&
     videos.every(
-      (v) => v.url && v.title.length > 0 && v.title[0].text.trim() !== ""
+      (v) =>
+        v.src && v.title && v.title.length > 0 && v.title[0].text.trim() !== ""
     );
 
   return (
@@ -86,7 +87,9 @@ export function VideoPreviewPanel({
                     ? "Enter main title first"
                     : videos.some(
                         (v) =>
-                          v.title.length === 0 || v.title[0].text.trim() === ""
+                          !v.title ||
+                          v.title.length === 0 ||
+                          v.title[0].text.trim() === ""
                       )
                     ? "Enter all video titles"
                     : "Add all video URLs"}

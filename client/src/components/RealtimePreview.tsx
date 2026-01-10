@@ -4,35 +4,24 @@ import {
   type TimelineState,
   type TimelineClip,
   type TextOverlay,
-  type VideoMemeSound,
 } from "../types/timeline";
 import { useDebounce } from "../hooks/useDebounce";
 import "./RealtimePreview.css";
 import { Pause, Play } from "lucide-react";
 import {
-  parseTextToSegments,
-  getCachedEmojiImage,
   preloadEmojisFromText,
   extractEmojis,
 } from "../services/emoji-image.service";
-import { buildRankingTimeline } from "video-maker-shared";
+
+import type { EditedClip } from "../features/ranking";
+import {
+  renderVideoFrame,
+  renderOverlay,
+} from "../features/ranking/utils/canvas-renderer";
 
 interface RealtimePreviewProps {
   mainTitle: TextSegment[];
-  videos: {
-    id: number;
-    videoNumber: number; // Immutable display number
-    url: string;
-    title: TextSegment[];
-    trimStart?: number;
-    trimEnd?: number;
-    // Crop values (in source video pixels)
-    cropX?: number;
-    cropY?: number;
-    cropWidth?: number;
-    cropHeight?: number;
-    memeSounds?: VideoMemeSound[];
-  }[];
+  videos: EditedClip[];
   width: number;
   height: number;
 }
@@ -44,64 +33,7 @@ interface LoadedAsset {
   audioBuffer?: AudioBuffer;
 }
 
-// Helper: Normalize colors to match FFmpeg backend
-const normalizeColor = (color: string | undefined): string => {
-  if (!color) return "white";
-  const map: Record<string, string> = {
-    "#FFD700": "#FFC700",
-    "#FF6B6B": "#E63946",
-    "#4ECDC4": "#06AED5",
-    "#95E1D3": "#2D9E6D",
-  };
-  return map[color] || color;
-};
-
-// Helper: Measure text segment width
-const measureSegment = (
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  fontSize: number
-) => {
-  ctx.font = `${fontSize}px Impact, Arial, sans-serif`;
-  return ctx.measureText(text).width;
-};
-
-// Helper: Wrap text into lines of segments
-const wrapTextStats = (
-  ctx: CanvasRenderingContext2D,
-  segments: TextSegment[],
-  maxWidth: number,
-  defaultFontSize: number
-) => {
-  const lines: TextSegment[][] = [];
-  let currentLine: TextSegment[] = [];
-  let currentLineWidth = 0;
-
-  for (const seg of segments) {
-    const fontSize = seg.fontSize || defaultFontSize;
-    const words = seg.text.split(" ");
-
-    for (let i = 0; i < words.length; i++) {
-      const word = words[i];
-      // Re-add space if not last word, or if original seg ended with space (simplification: assume space between words)
-      const wordWithSpace = word + (i < words.length - 1 ? " " : "");
-
-      const wordW = measureSegment(ctx, wordWithSpace, fontSize);
-
-      if (currentLineWidth + wordW > maxWidth && currentLine.length > 0) {
-        // If it's just a space causing overflow, ignore? No, standard wrapping.
-        lines.push(currentLine);
-        currentLine = [{ ...seg, text: wordWithSpace }];
-        currentLineWidth = wordW;
-      } else {
-        currentLine.push({ ...seg, text: wordWithSpace });
-        currentLineWidth += wordW;
-      }
-    }
-  }
-  if (currentLine.length > 0) lines.push(currentLine);
-  return lines;
-};
+// Helper functions moved to canvas-renderer.ts
 
 export function RealtimePreview({
   mainTitle,
@@ -152,7 +84,12 @@ export function RealtimePreview({
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
       const AudioContextClass =
-        window.AudioContext || (window as any).webkitAudioContext;
+        window.AudioContext ||
+        (
+          window as unknown as Window & {
+            webkitAudioContext: typeof AudioContext;
+          }
+        ).webkitAudioContext;
       audioContextRef.current = new AudioContextClass();
     }
     return audioContextRef.current;
@@ -163,18 +100,18 @@ export function RealtimePreview({
     async (videosToLoad: typeof videos) => {
       // Only attempt to load URLs that look somewhat valid (length > 10, http)
       const validToLoad = videosToLoad.filter(
-        (v) => v.url && v.url.trim().length > 10 && v.url.startsWith("http")
+        (v) => v.src && v.src.trim().length > 10 && v.src.startsWith("http")
       );
 
       // Determine which valid videos are missing from cache
       const missingVideos = validToLoad.filter(
-        (v) => !loadedAssetsRef.current.has(v.url)
+        (v) => !loadedAssetsRef.current.has(v.src)
       );
 
       // Identify missing meme sounds
       const allSoundUrls = new Set<string>();
       videosToLoad.forEach((v) => {
-        v.memeSounds?.forEach((s) => allSoundUrls.add(s.file));
+        v.audio?.forEach((s) => allSoundUrls.add(s.src));
       });
       const missingSounds = Array.from(allSoundUrls).filter(
         (url) => !loadedSoundsRef.current.has(url)
@@ -221,7 +158,7 @@ export function RealtimePreview({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                videos: missingVideos.map((v) => ({ url: v.url, id: v.id })),
+                videos: missingVideos.map((v) => ({ url: v.src, id: v.id })),
               }),
             }
           );
@@ -237,14 +174,19 @@ export function RealtimePreview({
             throw new Error(data.error || "Failed to download videos");
           }
 
-          const loaded: any[] = data.videos;
+          const loaded: {
+            url: string;
+            id: number;
+            originalUrl: string;
+            duration: number;
+          }[] = data.videos;
 
           // Process and cache
           for (const fileData of loaded) {
             const originalInput = missingVideos.find(
-              (m) => m.id === fileData.id
+              (m) => m.id === fileData.id.toString()
             );
-            const originalUrl = originalInput?.url || fileData.originalUrl;
+            const originalUrl = originalInput?.src || fileData.originalUrl;
 
             // Decode Audio with fallback
             let audioBuffer: AudioBuffer;
@@ -288,6 +230,7 @@ export function RealtimePreview({
   // 2. Build Timeline (Synchronous, fast)
   const buildTimeline = useCallback(() => {
     const clips: TimelineClip[] = [];
+    const overlays: TextOverlay[] = [];
 
     if (videos.length === 0) {
       setTimeline(null);
@@ -295,9 +238,10 @@ export function RealtimePreview({
       return;
     }
 
-    // Use videos in array order as-is (user-defined via drag-and-drop)
+    // Use videos in array order (user-defined via drag-and-drop)
+    // Filter for valid videos that have loaded assets
     const playbackOrder = videos.filter(
-      (vid) => vid.url && loadedAssetsRef.current.has(vid.url)
+      (vid) => vid.src && loadedAssetsRef.current.has(vid.src)
     );
 
     if (playbackOrder.length === 0) {
@@ -306,76 +250,6 @@ export function RealtimePreview({
       return;
     }
 
-    // Prepare video metadata for shared timeline builder
-    const videoMetadata = playbackOrder
-      .map((vid) => {
-        const asset = loadedAssetsRef.current.get(vid.url);
-        if (!asset) return null;
-
-        const trimStart = vid.trimStart || 0;
-        const trimEnd =
-          vid.trimEnd && vid.trimEnd > 0 ? vid.trimEnd : asset.duration;
-        const clipDuration = Math.max(0, trimEnd - trimStart);
-
-        return {
-          id: vid.id,
-          videoNumber: vid.videoNumber,
-          title: vid.title,
-          duration: clipDuration,
-        };
-      })
-      .filter((v) => v !== null && v.duration > 0);
-
-    if (videoMetadata.length === 0) {
-      setTimeline(null);
-      setDuration(0);
-      return;
-    }
-
-    // Use shared timeline builder - single source of truth
-    const sharedTimeline = buildRankingTimeline(videoMetadata as any);
-
-    if (sharedTimeline.totalDuration === 0) {
-      setTimeline(null);
-      setDuration(0);
-      return;
-    }
-
-    // Build clips for playback (same as before, needed for video rendering)
-    let currentOffset = 0;
-    for (const vid of playbackOrder) {
-      if (!vid.url) continue;
-      const asset = loadedAssetsRef.current.get(vid.url);
-      if (!asset) continue;
-
-      const trimStart = vid.trimStart || 0;
-      const trimEnd =
-        vid.trimEnd && vid.trimEnd > 0 ? vid.trimEnd : asset.duration;
-      const clipDuration = Math.max(0, trimEnd - trimStart);
-
-      if (clipDuration <= 0) continue;
-
-      clips.push({
-        id: vid.id,
-        url: asset.url,
-        originalUrl: vid.url,
-        duration: clipDuration,
-        startTime: currentOffset,
-        endTime: currentOffset + clipDuration,
-        sourceStart: trimStart,
-        volume: 1,
-        audioBuffer: asset.audioBuffer,
-        cropX: vid.cropX,
-        cropY: vid.cropY,
-        cropWidth: vid.cropWidth,
-        cropHeight: vid.cropHeight,
-        memeSounds: vid.memeSounds || [],
-      });
-      currentOffset += clipDuration;
-    }
-
-    const overlays: TextOverlay[] = [];
-
     // Layout constants
     const rankingItemHeight = 200;
     const titleHeight = 300;
@@ -383,74 +257,114 @@ export function RealtimePreview({
     const totalRankingHeight = videos.length * rankingItemHeight;
     const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
 
-    // Main Title (always visible)
-    overlays.push({
+    let currentOffset = 0;
+
+    // Main Title (always visible across entire duration, updated at end)
+    const mainTitleOverlay: TextOverlay = {
       id: "main-title",
       text: mainTitle,
       startTime: 0,
-      endTime: sharedTimeline.totalDuration,
+      endTime: 0, // placeholder, update after loop
       x: "center",
       y: 90,
       type: "main-title",
       opacity: 1,
       scale: 1,
-    });
+    };
+    overlays.push(mainTitleOverlay);
 
-    // Generate rank slot overlays from shared timeline segments
-    // Slot numbers (always visible for all slots)
-    sharedTimeline.clips.forEach((clip: (typeof sharedTimeline.clips)[0]) => {
-      videos.forEach((video) => {
+    // Build clips and per-clip overlays
+    for (const vid of playbackOrder) {
+      if (!vid.src) continue;
+      const asset = loadedAssetsRef.current.get(vid.src);
+      if (!asset) continue;
+
+      const trimStart = vid.trim?.start || 0;
+      const trimEnd =
+        vid.trim?.end && vid.trim.end > 0 ? vid.trim.end : asset.duration;
+      const clipDuration = Math.max(0, trimEnd - trimStart);
+
+      if (clipDuration <= 0) continue;
+
+      const startTime = currentOffset;
+      const endTime = currentOffset + clipDuration;
+
+      // 1. Add Video Clip
+      clips.push({
+        id: parseInt(vid.id),
+        url: asset.url,
+        originalUrl: vid.src,
+        duration: clipDuration,
+        startTime: startTime,
+        endTime: endTime,
+        sourceStart: trimStart,
+        volume: 1,
+        audioBuffer: asset.audioBuffer,
+        cropX: vid.crop?.x,
+        cropY: vid.crop?.y,
+        cropWidth: vid.crop?.width,
+        cropHeight: vid.crop?.height,
+        memeSounds:
+          vid.audio?.map((a) => ({
+            id: Math.random().toString(), // Regenerate ID if needed or preserve? simple random is fine for preview
+            soundId: "custom",
+            file: a.src,
+            startTime: a.start,
+            volume: a.volume ?? 1.0,
+          })) || [],
+      });
+
+      // 2. Add Overlays for this specific time range
+      // For every clip duration, we render the full list of rankings
+      videos.forEach((rankingVideo) => {
         const yPos =
-          rankingStartY + (video.videoNumber - 1) * rankingItemHeight;
+          rankingStartY + (rankingVideo.slotIndex - 1) * rankingItemHeight;
+        const isCurrentActive = rankingVideo.id === vid.id;
+        const color = isCurrentActive ? "#ffff00" : "white";
 
-        // Determine if this video is currently playing during this clip
-        const isThisVideoPlaying = video.id === clip.videoId;
-        const color = isThisVideoPlaying ? "#ffff00" : "white";
-
-        // Always show slot number
+        // Slot Number
         overlays.push({
-          id: `slot-num-${video.videoNumber}-during-${clip.videoId}`,
-          text: [{ text: `${video.videoNumber}.`, color, fontSize: 52 }],
-          startTime: clip.startTime,
-          endTime: clip.endTime,
+          id: `slot-num-${rankingVideo.slotIndex}-during-${vid.id}`,
+          text: [{ text: `${rankingVideo.slotIndex}.`, color, fontSize: 52 }],
+          startTime: startTime,
+          endTime: endTime,
           x: 30,
           y: yPos,
           type: "ranking-number",
           opacity: 1,
           scale: 1,
-          rank: video.videoNumber,
+          rank: rankingVideo.slotIndex,
         });
+
+        // Title (Only if current active)
+        if (isCurrentActive && rankingVideo.title) {
+          overlays.push({
+            id: `slot-title-${rankingVideo.slotIndex}-during-${vid.id}`,
+            text: rankingVideo.title.map((t) => ({
+              ...t,
+              color: t.color || color,
+            })),
+            startTime: startTime,
+            endTime: endTime,
+            x: 90,
+            y: yPos + 4,
+            type: "ranking-title",
+            opacity: 1,
+            scale: 1,
+            rank: rankingVideo.slotIndex,
+          });
+        }
       });
-    });
 
-    // Title overlays from shared timeline segments
-    sharedTimeline.titleSegments.forEach(
-      (segment: (typeof sharedTimeline.titleSegments)[0]) => {
-        const yPos =
-          rankingStartY + (segment.slotIndex - 1) * rankingItemHeight;
-        const color = segment.isCurrentlyPlaying ? "#ffff00" : "white";
+      currentOffset += clipDuration;
+    }
 
-        overlays.push({
-          id: `slot-title-${segment.slotIndex}-${segment.startTime}-${segment.videoId}`,
-          text: segment.title.map((t: TextSegment) => ({
-            ...t,
-            color: t.color || color,
-          })),
-          startTime: segment.startTime,
-          endTime: segment.endTime,
-          x: 90,
-          y: yPos + 4,
-          type: "ranking-title",
-          opacity: 1,
-          scale: 1,
-          rank: segment.slotIndex,
-        });
-      }
-    );
+    // Update Main Title duration
+    mainTitleOverlay.endTime = currentOffset;
 
-    setDuration(sharedTimeline.totalDuration);
+    setDuration(currentOffset);
     setTimeline({
-      duration: sharedTimeline.totalDuration,
+      duration: currentOffset,
       currentTime: 0,
       isPlaying: false,
       clips,
@@ -463,12 +377,12 @@ export function RealtimePreview({
   // Effect 1: Handle Asset Loading (Debounced)
   useEffect(() => {
     const validVideos = debouncedVideos.filter(
-      (v) => v.url && v.url.startsWith("http")
+      (v) => v.src && v.src.startsWith("http")
     );
     const needsLoad =
-      validVideos.some((v) => !loadedAssetsRef.current.has(v.url)) ||
+      validVideos.some((v) => !loadedAssetsRef.current.has(v.src)) ||
       debouncedVideos.some((v) =>
-        v.memeSounds?.some((s) => !loadedSoundsRef.current.has(s.file))
+        v.audio?.some((s) => !loadedSoundsRef.current.has(s.src))
       );
 
     if (needsLoad) {
@@ -480,11 +394,11 @@ export function RealtimePreview({
 
   // Effect 2: Handle Instant Updates (Text/Structure)
   useEffect(() => {
-    const validVideos = videos.filter((v) => v.url && v.url.startsWith("http"));
+    const validVideos = videos.filter((v) => v.src && v.src.startsWith("http"));
     const needsLoad =
-      validVideos.some((v) => !loadedAssetsRef.current.has(v.url)) ||
+      validVideos.some((v) => !loadedAssetsRef.current.has(v.src)) ||
       videos.some((v) =>
-        v.memeSounds?.some((s) => !loadedSoundsRef.current.has(s.file))
+        v.audio?.some((s) => !loadedSoundsRef.current.has(s.src))
       );
 
     if (!needsLoad) {
@@ -501,7 +415,7 @@ export function RealtimePreview({
 
     // Collect text from video titles
     videos.forEach((v) => {
-      v.title.forEach((seg) => allText.push(seg.text));
+      v.title?.forEach((seg) => allText.push(seg.text));
     });
 
     // Extract all emojis and preload their images
@@ -519,200 +433,6 @@ export function RealtimePreview({
   }, [mainTitle, videos, buildTimeline]);
 
   // ... Render Loop and Audio Control ...
-
-  const drawOverlay = useCallback(
-    (ctx: CanvasRenderingContext2D, overlay: TextOverlay) => {
-      ctx.save();
-      const fontBase = "Impact, Arial, sans-serif";
-      const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
-
-      if (overlay.type === "main-title") {
-        // Get font size from first segment or use Medium (64px) as default
-        const defaultFontSize = overlay.text[0]?.fontSize || 64;
-        const maxWidth = 900; // Slightly wider to accommodate letter spacing
-        const lineHeight = defaultFontSize + 14; // More line spacing
-        const letterSpacing = 4; // Extra pixels between each character
-        const lines = wrapTextStats(
-          ctx,
-          overlay.text,
-          maxWidth,
-          defaultFontSize
-        );
-
-        let startY = 180; // Centered vertically in 300px title area (accounting for font baseline)
-        if (lines.length > 1) {
-          startY -= ((lines.length - 1) * lineHeight) / 2;
-        }
-
-        lines.forEach((line, lineIdx) => {
-          // Calculate total line width including letter spacing
-          let lineWidth = 0;
-          line.forEach((s) => {
-            const segFontSize = s.fontSize || defaultFontSize;
-            ctx.font = `${segFontSize}px ${fontBase}`;
-            // Add letter spacing for each character
-            for (const char of s.text) {
-              lineWidth += ctx.measureText(char).width + letterSpacing;
-            }
-          });
-          // Remove the last extra spacing
-          lineWidth -= letterSpacing;
-
-          let currentX = (width - lineWidth) / 2;
-          const currentY = startY + lineIdx * lineHeight;
-
-          // Draw background box with extra padding for letter spacing
-          ctx.fillStyle = "rgba(0,0,0,0.6)";
-          ctx.fillRect(
-            currentX - 20,
-            currentY - defaultFontSize,
-            lineWidth + 40,
-            defaultFontSize + 32
-          );
-
-          // Draw each segment with letter spacing
-          line.forEach((seg) => {
-            const segFontSize = seg.fontSize || defaultFontSize;
-            ctx.font = `${segFontSize}px ${fontBase}`;
-            const segColor = getSegColor(seg);
-
-            // Check if border should be shown:
-            // 1. hasBorder must be true (or undefined for backward compatibility)
-            // 2. Color must NOT be white (borders don't look good on white text)
-            const isWhiteColor =
-              segColor === "white" ||
-              segColor === "#ffffff" ||
-              segColor === "#fff" ||
-              segColor === "rgb(255, 255, 255)";
-            const shouldShowBorder = seg.hasBorder !== false && !isWhiteColor;
-
-            // Ensure all characters align to the same baseline
-            ctx.textBaseline = "alphabetic";
-
-            // Parse text for emojis and draw accordingly
-            const parsed = parseTextToSegments(seg.text);
-            for (const part of parsed) {
-              if (part.type === "emoji") {
-                // Draw emoji as image
-                const emojiImg = getCachedEmojiImage(part.content);
-                if (emojiImg) {
-                  const emojiSize = segFontSize;
-                  // Adjust Y to align emoji with text baseline
-                  const emojiY = currentY - segFontSize * 0.85;
-                  ctx.drawImage(
-                    emojiImg,
-                    currentX,
-                    emojiY,
-                    emojiSize,
-                    emojiSize
-                  );
-                  currentX += emojiSize + letterSpacing;
-                } else {
-                  // Fallback: draw emoji as text (browser native)
-                  ctx.fillStyle = segColor;
-                  ctx.fillText(part.content, currentX, currentY);
-                  currentX +=
-                    ctx.measureText(part.content).width + letterSpacing;
-                }
-              } else {
-                // Draw each character individually with spacing
-                for (const char of part.content) {
-                  // Only show yellow border if enabled and not white text
-                  if (shouldShowBorder) {
-                    ctx.strokeStyle = "#FFD700"; // Yellow border
-                    ctx.lineWidth = 4;
-                    ctx.lineJoin = "round";
-                    ctx.strokeText(char, currentX, currentY);
-                  }
-                  // Fill text on top
-                  ctx.fillStyle = segColor;
-                  ctx.fillText(char, currentX, currentY);
-                  currentX += ctx.measureText(char).width + letterSpacing;
-                }
-              }
-            }
-          });
-        });
-      } else if (overlay.type === "ranking-title") {
-        // Get font size from first segment or use Small (52px) as default
-        const defaultFontSize = overlay.text[0]?.fontSize || 52;
-        const maxWidth = 700;
-        const lineHeight = defaultFontSize + 8;
-        const lines = wrapTextStats(
-          ctx,
-          overlay.text,
-          maxWidth,
-          defaultFontSize
-        );
-
-        let currentY = overlay.y;
-
-        lines.forEach((line) => {
-          let currentX = typeof overlay.x === "number" ? overlay.x : 90;
-          line.forEach((seg) => {
-            const segFontSize = seg.fontSize || defaultFontSize;
-            ctx.font = `${segFontSize}px ${fontBase}`;
-            const segColor = getSegColor(seg);
-
-            // Parse text for emojis
-            const parsed = parseTextToSegments(seg.text);
-            for (const part of parsed) {
-              if (part.type === "emoji") {
-                const emojiImg = getCachedEmojiImage(part.content);
-                if (emojiImg) {
-                  const emojiSize = segFontSize;
-                  const emojiY = currentY - segFontSize * 0.85;
-                  ctx.drawImage(
-                    emojiImg,
-                    currentX,
-                    emojiY,
-                    emojiSize,
-                    emojiSize
-                  );
-                  currentX += emojiSize;
-                } else {
-                  ctx.fillStyle = segColor;
-                  ctx.strokeStyle = "black";
-                  ctx.lineWidth = 3;
-                  ctx.lineJoin = "round";
-                  ctx.strokeText(part.content, currentX, currentY);
-                  ctx.fillText(part.content, currentX, currentY);
-                  currentX += ctx.measureText(part.content).width;
-                }
-              } else {
-                ctx.fillStyle = segColor;
-                ctx.strokeStyle = "black";
-                ctx.lineWidth = 3;
-                ctx.lineJoin = "round";
-                ctx.strokeText(part.content, currentX, currentY);
-                ctx.fillText(part.content, currentX, currentY);
-                currentX += ctx.measureText(part.content).width;
-              }
-            }
-          });
-          currentY += lineHeight;
-        });
-      } else if (overlay.type === "ranking-number") {
-        const fontSize = 52;
-        let currentX = 30;
-        const currentY = overlay.y;
-
-        overlay.text.forEach((seg) => {
-          ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
-          ctx.fillStyle = getSegColor(seg);
-          ctx.strokeStyle = "black";
-          ctx.lineWidth = 3;
-          ctx.lineJoin = "round";
-          ctx.strokeText(seg.text, currentX, currentY);
-          ctx.fillText(seg.text, currentX, currentY);
-          currentX += ctx.measureText(seg.text).width;
-        });
-      }
-
-      ctx.restore();
-    },
-    [width]
-  );
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -742,34 +462,29 @@ export function RealtimePreview({
       if (videoEl) {
         const clipTime =
           currentTime - currentClip.startTime + currentClip.sourceStart;
+
+        // Sync video element time
         if (Math.abs(videoEl.currentTime - clipTime) > 0.1) {
           videoEl.currentTime = clipTime;
         }
 
-        const titleHeight = 300; // Increased from 200 for more title space
-        const videoAreaHeight = height - titleHeight;
-        const vw = videoEl.videoWidth;
-        const vh = videoEl.videoHeight;
         const hasCrop = currentClip.cropWidth && currentClip.cropHeight;
-        const sx = hasCrop ? currentClip.cropX ?? 0 : 0;
-        const sy = hasCrop ? currentClip.cropY ?? 0 : 0;
-        const sw = hasCrop ? currentClip.cropWidth! : vw;
-        const sh = hasCrop ? currentClip.cropHeight! : vh;
-
-        if (sw > 0 && sh > 0) {
-          const scale = Math.max(width / sw, videoAreaHeight / sh);
-          const scaledW = sw * scale;
-          const scaledH = sh * scale;
-          const dx = (width - scaledW) / 2;
-          const dy = titleHeight + (videoAreaHeight - scaledH) / 2;
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, titleHeight, width, videoAreaHeight);
-          ctx.clip();
-          ctx.drawImage(videoEl, sx, sy, sw, sh, dx, dy, scaledW, scaledH);
-          ctx.restore();
-        }
+        renderVideoFrame(
+          ctx,
+          videoEl,
+          {
+            crop: hasCrop
+              ? {
+                  x: currentClip.cropX ?? 0,
+                  y: currentClip.cropY ?? 0,
+                  width: currentClip.cropWidth!,
+                  height: currentClip.cropHeight!,
+                }
+              : undefined,
+          },
+          width,
+          height
+        );
       }
     }
 
@@ -778,7 +493,7 @@ export function RealtimePreview({
     );
 
     activeOverlays.forEach((overlay) => {
-      drawOverlay(ctx, overlay);
+      renderOverlay(ctx, overlay, width);
     });
   }, [currentTime, width, height]);
 
@@ -787,7 +502,9 @@ export function RealtimePreview({
     audioSourcesRef.current.forEach((source) => {
       try {
         source.stop();
-      } catch {}
+      } catch {
+        // Ignore errors when stopping source
+      }
     });
     audioSourcesRef.current.clear();
   };

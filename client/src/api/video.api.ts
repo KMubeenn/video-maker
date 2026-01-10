@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { RenderSpec } from "../features/ranking/types";
 
 const API_URL = "http://localhost:4000/api/video";
 const MERGE_API_URL = "http://localhost:4000/api/merge";
@@ -64,13 +65,15 @@ export const createRankingVideo = async (
   mainTitle: TextSegment[], // Changed from string to TextSegment[]
   videos: RankingVideoInput[],
   width?: number,
-  height?: number
+  height?: number,
+  spec?: RenderSpec
 ) => {
   const res = await axios.post(`${RANKING_API_URL}/create`, {
     mainTitle,
     videos,
     width,
     height,
+    spec,
   });
   return res.data;
 };
@@ -94,13 +97,15 @@ export const generateFullPreview = async (
   mainTitle: TextSegment[], // Changed from string to TextSegment[]
   videos: RankingVideoInput[],
   width?: number,
-  height?: number
+  height?: number,
+  spec?: RenderSpec
 ): Promise<PreviewVideoResponse> => {
   const res = await axios.post(`${RANKING_API_URL}/generate-preview`, {
     mainTitle,
     videos,
     width,
     height,
+    spec,
   });
   return res.data;
 };
