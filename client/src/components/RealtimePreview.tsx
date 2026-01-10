@@ -15,11 +15,13 @@ import {
   preloadEmojisFromText,
   extractEmojis,
 } from "../services/emoji-image.service";
+import { buildRankingTimeline } from "video-maker-shared";
 
 interface RealtimePreviewProps {
   mainTitle: TextSegment[];
   videos: {
     id: number;
+    videoNumber: number; // Immutable display number
     url: string;
     title: TextSegment[];
     trimStart?: number;
@@ -33,7 +35,6 @@ interface RealtimePreviewProps {
   }[];
   width: number;
   height: number;
-  firstToPlay?: number | null; // Index of video to play first (not rank #1)
 }
 
 interface LoadedAsset {
@@ -107,7 +108,6 @@ export function RealtimePreview({
   videos,
   width,
   height,
-  firstToPlay,
 }: RealtimePreviewProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -288,7 +288,6 @@ export function RealtimePreview({
   // 2. Build Timeline (Synchronous, fast)
   const buildTimeline = useCallback(() => {
     const clips: TimelineClip[] = [];
-    let currentOffset = 0;
 
     if (videos.length === 0) {
       setTimeline(null);
@@ -296,35 +295,57 @@ export function RealtimePreview({
       return;
     }
 
-    const rank1Video = videos[0];
-    const otherVideos = videos.slice(1);
-
-    // Random shuffle for other videos (Rank 2-N)
-    let shuffledOthers = [...otherVideos].sort((a, b) => {
-      // Simple deterministic hash based shuffle
-      return ((a.id * 13 + 7) % 5) - ((b.id * 13 + 7) % 5);
-    });
-
-    if (firstToPlay !== null && firstToPlay !== undefined && firstToPlay >= 1) {
-      const selectedVideo = videos[firstToPlay];
-      if (selectedVideo) {
-        shuffledOthers = shuffledOthers.filter(
-          (v) => v.id !== selectedVideo.id
-        );
-        shuffledOthers.unshift(selectedVideo);
-      }
-    }
-
-    const rawPlaybackOrder = [...shuffledOthers, rank1Video].filter(Boolean);
-
-    const playbackOrder = rawPlaybackOrder.filter(
+    // Use videos in array order as-is (user-defined via drag-and-drop)
+    const playbackOrder = videos.filter(
       (vid) => vid.url && loadedAssetsRef.current.has(vid.url)
     );
 
+    if (playbackOrder.length === 0) {
+      setTimeline(null);
+      setDuration(0);
+      return;
+    }
+
+    // Prepare video metadata for shared timeline builder
+    const videoMetadata = playbackOrder
+      .map((vid) => {
+        const asset = loadedAssetsRef.current.get(vid.url);
+        if (!asset) return null;
+
+        const trimStart = vid.trimStart || 0;
+        const trimEnd =
+          vid.trimEnd && vid.trimEnd > 0 ? vid.trimEnd : asset.duration;
+        const clipDuration = Math.max(0, trimEnd - trimStart);
+
+        return {
+          id: vid.id,
+          videoNumber: vid.videoNumber,
+          title: vid.title,
+          duration: clipDuration,
+        };
+      })
+      .filter((v) => v !== null && v.duration > 0);
+
+    if (videoMetadata.length === 0) {
+      setTimeline(null);
+      setDuration(0);
+      return;
+    }
+
+    // Use shared timeline builder - single source of truth
+    const sharedTimeline = buildRankingTimeline(videoMetadata as any);
+
+    if (sharedTimeline.totalDuration === 0) {
+      setTimeline(null);
+      setDuration(0);
+      return;
+    }
+
+    // Build clips for playback (same as before, needed for video rendering)
+    let currentOffset = 0;
     for (const vid of playbackOrder) {
       if (!vid.url) continue;
       const asset = loadedAssetsRef.current.get(vid.url);
-
       if (!asset) continue;
 
       const trimStart = vid.trimStart || 0;
@@ -353,22 +374,21 @@ export function RealtimePreview({
       currentOffset += clipDuration;
     }
 
-    const totalDuration = currentOffset;
-
-    if (totalDuration === 0) {
-      setTimeline(null);
-      setDuration(0);
-      return;
-    }
-
     const overlays: TextOverlay[] = [];
 
-    // Main Title
+    // Layout constants
+    const rankingItemHeight = 200;
+    const titleHeight = 300;
+    const videoHeight = height - titleHeight;
+    const totalRankingHeight = videos.length * rankingItemHeight;
+    const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
+
+    // Main Title (always visible)
     overlays.push({
       id: "main-title",
       text: mainTitle,
       startTime: 0,
-      endTime: totalDuration,
+      endTime: sharedTimeline.totalDuration,
       x: "center",
       y: 90,
       type: "main-title",
@@ -376,35 +396,21 @@ export function RealtimePreview({
       scale: 1,
     });
 
-    playbackOrder.forEach((playingVideo, playbackIndex) => {
-      const clip = clips.find((c) => c.id === playingVideo.id);
-      if (!clip) return;
+    // Generate rank slot overlays from shared timeline segments
+    // Slot numbers (always visible for all slots)
+    sharedTimeline.clips.forEach((clip: (typeof sharedTimeline.clips)[0]) => {
+      videos.forEach((video) => {
+        const yPos =
+          rankingStartY + (video.videoNumber - 1) * rankingItemHeight;
 
-      const revealedVideos = playbackOrder.slice(0, playbackIndex + 1);
-      const revealedRanks = new Set(
-        revealedVideos.map(
-          (v) => videos.findIndex((Ref) => Ref.id === v.id) + 1
-        )
-      );
+        // Determine if this video is currently playing during this clip
+        const isThisVideoPlaying = video.id === clip.videoId;
+        const color = isThisVideoPlaying ? "#ffff00" : "white";
 
-      videos.forEach((v, originalIdx) => {
-        const rankNum = originalIdx + 1;
-        const isCurrentRank =
-          rankNum === videos.findIndex((Ref) => Ref.id === playingVideo.id) + 1;
-        const rankingItemHeight = 200;
-        const titleHeight = 300; // Increased from 200 for more title space
-        const videoHeight = height - titleHeight;
-        const totalRankingHeight = videos.length * rankingItemHeight;
-        const rankingStartY =
-          titleHeight + (videoHeight - totalRankingHeight) / 2;
-        const yPos = rankingStartY + originalIdx * rankingItemHeight;
-
-        const color = isCurrentRank ? "#ffff00" : "white";
-
-        // Rank Number
+        // Always show slot number
         overlays.push({
-          id: `rank-num-${rankNum}-during-${clip.id}`,
-          text: [{ text: `${rankNum}.`, color: color, fontSize: 52 }],
+          id: `slot-num-${video.videoNumber}-during-${clip.videoId}`,
+          text: [{ text: `${video.videoNumber}.`, color, fontSize: 52 }],
           startTime: clip.startTime,
           endTime: clip.endTime,
           x: 30,
@@ -412,30 +418,39 @@ export function RealtimePreview({
           type: "ranking-number",
           opacity: 1,
           scale: 1,
-          rank: rankNum,
+          rank: video.videoNumber,
         });
-
-        // Video Title
-        if (revealedRanks.has(rankNum)) {
-          overlays.push({
-            id: `rank-title-${rankNum}-during-${clip.id}`,
-            text: v.title.map((t) => ({ ...t, color: t.color || color })),
-            startTime: clip.startTime,
-            endTime: clip.endTime,
-            x: 90,
-            y: yPos + 4,
-            type: "ranking-title",
-            opacity: 1,
-            scale: 1,
-            rank: rankNum,
-          });
-        }
       });
     });
 
-    setDuration(totalDuration);
+    // Title overlays from shared timeline segments
+    sharedTimeline.titleSegments.forEach(
+      (segment: (typeof sharedTimeline.titleSegments)[0]) => {
+        const yPos =
+          rankingStartY + (segment.slotIndex - 1) * rankingItemHeight;
+        const color = segment.isCurrentlyPlaying ? "#ffff00" : "white";
+
+        overlays.push({
+          id: `slot-title-${segment.slotIndex}-${segment.startTime}-${segment.videoId}`,
+          text: segment.title.map((t: TextSegment) => ({
+            ...t,
+            color: t.color || color,
+          })),
+          startTime: segment.startTime,
+          endTime: segment.endTime,
+          x: 90,
+          y: yPos + 4,
+          type: "ranking-title",
+          opacity: 1,
+          scale: 1,
+          rank: segment.slotIndex,
+        });
+      }
+    );
+
+    setDuration(sharedTimeline.totalDuration);
     setTimeline({
-      duration: totalDuration,
+      duration: sharedTimeline.totalDuration,
       currentTime: 0,
       isPlaying: false,
       clips,
@@ -443,7 +458,7 @@ export function RealtimePreview({
       width,
       height,
     });
-  }, [mainTitle, videos, width, height, firstToPlay]);
+  }, [mainTitle, videos, width, height]);
 
   // Effect 1: Handle Asset Loading (Debounced)
   useEffect(() => {

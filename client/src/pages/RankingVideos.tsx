@@ -1,5 +1,20 @@
 import { useState, useRef } from "react";
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
   generateFullPreview,
   uploadVideoFile,
   preparePreview,
@@ -8,6 +23,7 @@ import {
 import { RichTextInput } from "../components/RichTextInput";
 import { RealtimePreview } from "../components/RealtimePreview";
 import { VideoEditor } from "../components/VideoEditor";
+import { SortableVideoCard } from "../components/SortableVideoCard";
 import { type VideoMemeSound } from "../types/timeline";
 import {
   type VideoInput,
@@ -38,10 +54,6 @@ import {
   RefreshCw,
   Upload,
   Scissors,
-  Music,
-  Image,
-  Play,
-  Trophy,
   Database,
   Check,
 } from "lucide-react";
@@ -63,20 +75,23 @@ export default function RankingVideos() {
   const [videos, setVideos] = useState<VideoInput[]>([
     {
       id: 1,
+      videoNumber: 1,
       url: "",
-      title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default for video titles
+      title: [{ text: "", color: "white", fontSize: 52 }],
       memeSounds: [],
     },
     {
       id: 2,
+      videoNumber: 2,
       url: "",
-      title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default for video titles
+      title: [{ text: "", color: "white", fontSize: 52 }],
       memeSounds: [],
     },
     {
       id: 3,
+      videoNumber: 3,
       url: "",
-      title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default for video titles
+      title: [{ text: "", color: "white", fontSize: 52 }],
       memeSounds: [],
     },
   ]);
@@ -87,9 +102,13 @@ export default function RankingVideos() {
     new Set()
   );
 
-  // First to play selection (index of video to play first, null = default shuffle)
-  // Can only be videos with index >= 1 (not rank #1)
-  const [firstToPlay, setFirstToPlay] = useState<number | null>(null);
+  // Drag-and-drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Single preview state
   const [previewState, setPreviewState] = useState<PreviewState>({
@@ -103,15 +122,32 @@ export default function RankingVideos() {
     "realtime"
   );
 
+  // Handle drag end event
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setVideos((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+      // Clear preview when order changes
+      setPreviewState({ isGenerating: false, videoUrl: null, error: null });
+    }
+  };
+
   const handleVideoCountChange = (count: 3 | 4 | 5 | 6) => {
     setVideoCount(count);
     const newVideos: VideoInput[] = [];
     for (let i = 0; i < count; i++) {
+      // Preserve existing video if it exists, otherwise create new with stable videoNumber
       newVideos.push(
         videos[i] || {
           id: i + 1,
+          videoNumber: i + 1, // Assign permanent display number
           url: "",
-          title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default
+          title: [{ text: "", color: "white", fontSize: 52 }],
           memeSounds: [],
         }
       );
@@ -119,10 +155,6 @@ export default function RankingVideos() {
     setVideos(newVideos);
     setError("");
     setFailedVideoIndices(new Set());
-    // Reset firstToPlay if it's beyond the new count
-    if (firstToPlay !== null && firstToPlay >= count) {
-      setFirstToPlay(null);
-    }
     // Clear preview when changing video count
     setPreviewState({ isGenerating: false, videoUrl: null, error: null });
   };
@@ -307,6 +339,7 @@ export default function RankingVideos() {
         videos.map((v) => ({
           url: v.url,
           title: v.title,
+          videoNumber: v.videoNumber, // CRITICAL: immutable slot assignment for fixed positioning
           trimStart: v.trimStart,
           trimEnd: v.trimEnd,
           // Include crop values for export
@@ -321,8 +354,7 @@ export default function RankingVideos() {
           })),
         })),
         width,
-        height,
-        firstToPlay
+        height
       );
       // Extract failed video indices from warnings
       const failedIndices = new Set<number>();
@@ -354,14 +386,6 @@ export default function RankingVideos() {
         warnings: undefined,
       });
     }
-  };
-
-  const getPlatformIcon = (url: string) => {
-    if (url.includes("tiktok")) return <Music className="h-5 w-5" />;
-    if (url.includes("instagram")) return <Image className="h-5 w-5" />;
-    if (url.includes("youtube") || url.includes("youtu.be"))
-      return <Play className="h-5 w-5" />;
-    return null;
   };
 
   // Auto-populate from database
@@ -450,16 +474,19 @@ export default function RankingVideos() {
 
         newVideos.push({
           id: i + 1,
+          videoNumber: i + 1, // Assign permanent display number
           url: dbVideo.clip_url,
           title: titleSegments,
+          memeSounds: [],
         });
       } else {
         // Keep existing video or create empty one
         newVideos.push(
           videos[i] || {
             id: i + 1,
+            videoNumber: i + 1,
             url: "",
-            title: [{ text: "", color: "white", fontSize: 52 }], // Small (52px) default
+            title: [{ text: "", color: "white", fontSize: 52 }],
             memeSounds: [],
           }
         );
@@ -550,141 +577,125 @@ export default function RankingVideos() {
                 Auto-populate from Library
               </Button>
             </div>
-            <div className="first-to-play-hint">
-              💡 Select which video plays first (Rank #1 always plays last)
+            <div className="drag-hint text-sm text-muted-foreground mb-3">
+              💡 Drag videos to reorder • Top plays first, bottom plays last
             </div>
 
-            {videos.map((video, index) => {
-              const hasFailed = failedVideoIndices.has(index);
-              const failureInfo = previewState.warnings?.failedVideos.find(
-                (f) => f.index === index
-              );
-              const isRankOne = index === 0;
-              const isSelectedFirst = firstToPlay === index;
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={videos.map((v) => v.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {videos.map((video, index) => {
+                  const hasFailed = failedVideoIndices.has(index);
+                  const failureInfo = previewState.warnings?.failedVideos.find(
+                    (f) => f.index === index
+                  );
 
-              return (
-                <div
-                  key={video.id}
-                  className={`video-input-group ${
-                    hasFailed ? "has-error" : ""
-                  } ${isSelectedFirst ? "first-to-play" : ""}`}
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    {/* First to Play Radio Button - only for non-rank-1 videos */}
-                    <div className="first-play-selector">
-                      {!isRankOne ? (
-                        <label
-                          className={`first-play-radio ${
-                            isSelectedFirst ? "selected" : ""
-                          }`}
-                          title="Play this video first"
-                        >
-                          <input
-                            type="radio"
-                            name="firstToPlay"
-                            checked={isSelectedFirst}
-                            onChange={() => setFirstToPlay(index)}
-                          />
-                          <span className="radio-custom"></span>
-                          <span className="radio-label">1st</span>
-                        </label>
-                      ) : (
-                        <div
-                          className="rank-one-indicator flex items-center justify-center"
-                          title="Rank #1 always plays last"
-                        >
-                          <Trophy className="h-8 w-8" />
-                        </div>
-                      )}
-                    </div>
-                    <Badge
-                      variant={hasFailed ? "destructive" : "default"}
+                  return (
+                    <SortableVideoCard
+                      key={video.id}
+                      id={video.id}
                       className={cn(
-                        "rank-badge min-w-10 h-10 text-lg font-bold flex items-center justify-center",
-                        hasFailed && "error"
+                        "video-input-group mb-4",
+                        hasFailed && "has-error"
                       )}
                     >
-                      #{index + 1}
-                    </Badge>
-                    <div className="video-inputs">
-                      <div className="flex items-center gap-2">
-                        {hasFailed && (
-                          <div
-                            className={cn(
-                              "input-icon flex items-center justify-center",
-                              hasFailed && "error"
-                            )}
-                          >
-                            "⚠️"
-                          </div>
-                        )}
-                        <Input
-                          type="url"
+                      <div className="flex items-center gap-2 w-full">
+                        <Badge
+                          variant={hasFailed ? "destructive" : "default"}
                           className={cn(
-                            "url-input flex-1",
-                            hasFailed && "error border-destructive"
+                            "rank-badge min-w-10 h-10 text-lg font-bold flex items-center justify-center shrink-0",
+                            hasFailed && "error"
                           )}
-                          placeholder={`Video ${
-                            index + 1
-                          } URL (TikTok, Instagram, YouTube)`}
-                          value={video.url}
-                          onChange={(e) =>
-                            handleVideoChange(index, "url", e.target.value)
-                          }
-                          disabled={false}
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="upload-icon-btn h-10 w-10"
-                          onClick={() => handleUploadClick(index)}
-                          disabled={uploadingIndex !== null}
-                          title="Upload local video"
                         >
-                          {uploadingIndex === index ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Upload className="h-4 w-4" />
+                          #{video.videoNumber}
+                        </Badge>
+                        <div className="video-inputs flex-1">
+                          <div className="flex items-center gap-2">
+                            {hasFailed && (
+                              <div
+                                className={cn(
+                                  "input-icon flex items-center justify-center",
+                                  hasFailed && "error"
+                                )}
+                              >
+                                "⚠️"
+                              </div>
+                            )}
+                            <Input
+                              type="url"
+                              className={cn(
+                                "url-input flex-1",
+                                hasFailed && "error border-destructive"
+                              )}
+                              placeholder={`Video ${video.videoNumber} URL (TikTok, Instagram, YouTube)`}
+                              value={video.url}
+                              onChange={(e) =>
+                                handleVideoChange(index, "url", e.target.value)
+                              }
+                              disabled={false}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="upload-icon-btn h-10 w-10"
+                              onClick={() => handleUploadClick(index)}
+                              disabled={uploadingIndex !== null}
+                              title="Upload local video"
+                            >
+                              {uploadingIndex === index ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Upload className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="upload-icon-btn h-10 w-10"
+                              onClick={() => handleEditClick(index)}
+                              disabled={
+                                !video.url || loadingEditorIndex === index
+                              }
+                              title="Trim/Edit Video"
+                            >
+                              {loadingEditorIndex === index ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Scissors className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                          {hasFailed && failureInfo && (
+                            <Alert
+                              variant="destructive"
+                              className="inline-error-message mt-2"
+                            >
+                              <AlertDescription className="inline-error-text">
+                                {failureInfo.error}
+                              </AlertDescription>
+                            </Alert>
                           )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="upload-icon-btn h-10 w-10"
-                          onClick={() => handleEditClick(index)}
-                          disabled={!video.url || loadingEditorIndex === index}
-                          title="Trim/Edit Video"
-                        >
-                          {loadingEditorIndex === index ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Scissors className="h-4 w-4" />
-                          )}
-                        </Button>
+                        </div>
                       </div>
-                      {hasFailed && failureInfo && (
-                        <Alert
-                          variant="destructive"
-                          className="inline-error-message mt-2"
-                        >
-                          <AlertDescription className="inline-error-text">
-                            {failureInfo.error}
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                    </div>
-                  </div>
-                  <RichTextInput
-                    value={video.title}
-                    onChange={(segments) =>
-                      handleVideoChange(index, "title", segments)
-                    }
-                    placeholder={`Video ${index + 1} Title`}
-                    disabled={false}
-                  />
-                </div>
-              );
-            })}
+                      <RichTextInput
+                        value={video.title}
+                        onChange={(segments) =>
+                          handleVideoChange(index, "title", segments)
+                        }
+                        placeholder={`Video ${video.videoNumber} Title`}
+                        disabled={false}
+                      />
+                    </SortableVideoCard>
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
           </div>
 
           {/* Hidden File Input */}
@@ -812,7 +823,6 @@ export default function RankingVideos() {
               videos={videos}
               width={width}
               height={height}
-              firstToPlay={firstToPlay}
             />
           ) : (
             <VideoPreviewPanel

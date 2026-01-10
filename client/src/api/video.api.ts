@@ -43,6 +43,7 @@ export interface TextSegment {
 }
 
 export interface RankingVideoInput {
+  videoNumber?: number; // Immutable display number (optional for backward compatibility)
   url: string;
   title: TextSegment[];
   trimStart?: number;
@@ -93,15 +94,13 @@ export const generateFullPreview = async (
   mainTitle: TextSegment[], // Changed from string to TextSegment[]
   videos: RankingVideoInput[],
   width?: number,
-  height?: number,
-  firstToPlay?: number | null
+  height?: number
 ): Promise<PreviewVideoResponse> => {
   const res = await axios.post(`${RANKING_API_URL}/generate-preview`, {
     mainTitle,
     videos,
     width,
     height,
-    firstToPlay: firstToPlay ?? undefined,
   });
   return res.data;
 };

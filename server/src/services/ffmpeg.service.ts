@@ -26,6 +26,9 @@ import {
 // Import emoji cache service
 import { getEmojiPath } from "./emoji.cache.js";
 
+// Import shared timeline builder
+import { buildRankingTimeline } from "video-maker-shared";
+
 // ... types
 export interface RankingVideoInput {
   filePath: string;
@@ -106,6 +109,36 @@ export async function createRankingVideo(
 
     const titleFont = getSystemFont();
     const rankingFont = getSystemFont();
+
+    // STEP 1: Get video durations and build shared timeline BEFORE processing
+    console.log("[Timeline] Building global timeline...");
+    const videoMetadataForTimeline = [];
+    for (const video of options.videos) {
+      const inputPath = path.resolve(video.filePath).replace(/\\/g, "/");
+      const metadata = await getVideoMetadata(inputPath);
+
+      const trimStart = video.trimStart || 0;
+      const trimEnd =
+        video.trimEnd && video.trimEnd > 0 ? video.trimEnd : metadata.duration;
+      const clipDuration = Math.max(0, trimEnd - trimStart);
+
+      // Find the video's ID (use array index as proxy since we don't have explicit IDs)
+      const videoId = options.videos.indexOf(video);
+
+      videoMetadataForTimeline.push({
+        id: videoId,
+        videoNumber: video.rank, // rank is the immutable display slot
+        title: video.title,
+        duration: clipDuration,
+      });
+    }
+
+    // Build shared timeline - single source of truth
+    const sharedTimeline = buildRankingTimeline(videoMetadataForTimeline);
+    console.log(`[Timeline] Total duration: ${sharedTimeline.totalDuration}s`);
+    console.log(
+      `[Timeline] Generated ${sharedTimeline.titleSegments.length} title segments`
+    );
 
     for (const video of options.videos) {
       const inputPath = path.resolve(video.filePath).replace(/\\/g, "/");
@@ -305,53 +338,112 @@ export async function createRankingVideo(
         }
       }
 
-      // Rankings
-      const revealedRanks = new Set<number>();
-      for (let j = 0; j <= options.videos.indexOf(video); j++) {
-        const revealedVideo = options.videos[j];
-        if (revealedVideo) revealedRanks.add(revealedVideo.rank);
+      // STEP 2: Use shared timeline to generate title overlays with enable filters
+      // Find the clip info for this video
+      const videoIndex = options.videos.indexOf(video);
+      const clipInfo = sharedTimeline.clips[videoIndex];
+      if (!clipInfo) {
+        console.warn(`[Timeline] No clip info found for video ${video.rank}`);
+        continue;
       }
 
-      for (let i = 0; i < totalVideos; i++) {
-        const rankNum = i + 1;
-        const yPos = rankingStartY + i * rankingItemHeight;
-        const videoInfo = options.videos.find((v) => v.rank === rankNum);
-        const numColor = rankNum === video.rank ? "yellow" : "white";
-        const titleColor = rankNum === video.rank ? "yellow" : "white";
+      console.log(
+        `[Timeline] Video ${video.rank}: ${clipInfo.startTime}s - ${clipInfo.endTime}s`
+      );
 
+      // Slot numbers (always visible)
+      for (let slotNumber = 1; slotNumber <= totalVideos; slotNumber++) {
+        const yPos = rankingStartY + (slotNumber - 1) * rankingItemHeight;
+
+        // Find slot video by rank
+        const slotVideo = options.videos.find((v) => v.rank === slotNumber);
+        if (!slotVideo) continue;
+
+        const isThisVideoPlaying = slotVideo.rank === video.rank;
+        const numColor = isThisVideoPlaying ? "yellow" : "white";
+
+        // Always show slot number (no enable filter needed - visible entire clip)
         videoFilters.push(
-          `drawtext=fontfile='${rankingFont}':text='${rankNum}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
+          `drawtext=fontfile='${rankingFont}':text='${slotNumber}.':fontsize=52:fontcolor=${numColor}:x=30:y=${yPos}:borderw=3:bordercolor=black`
+        );
+      }
+
+      // Title overlays from timeline segments (with enable filters for precise timing)
+      // Filter segments that appear during THIS video's playback
+      const relevantSegments = sharedTimeline.titleSegments.filter(
+        (seg: any) =>
+          seg.startTime >= clipInfo.startTime &&
+          seg.startTime < clipInfo.endTime
+      );
+
+      console.log(
+        `[Timeline] Video ${video.rank} (index ${videoIndex}) has ${relevantSegments.length} title segments`
+      );
+      console.log(`[Timeline] Clip info:`, JSON.stringify(clipInfo, null, 2));
+      console.log(
+        `[Timeline] Relevant segments:`,
+        relevantSegments.map((s: any) => ({
+          videoId: s.videoId,
+          slot: s.slotIndex,
+          start: s.startTime,
+          end: s.endTime,
+          title: s.title[0]?.text,
+        }))
+      );
+
+      for (const segment of relevantSegments) {
+        const yPos =
+          rankingStartY + (segment.slotIndex - 1) * rankingItemHeight;
+        const titleColor = segment.isCurrentlyPlaying ? "yellow" : "white";
+
+        console.log(
+          `[Timeline]   Segment: videoId=${segment.videoId}, slot=${segment.slotIndex}, yPos=${yPos}, title="${segment.title[0]?.text}"`
         );
 
-        if (revealedRanks.has(rankNum) && videoInfo) {
-          const videoTitleFontSize = videoInfo.title[0]?.fontSize || 52;
-          const videoTitleRes = createFormattedTextFiltersWithEmojis(
-            videoInfo.title,
-            90,
-            yPos + 4,
-            rankingFont,
-            titleColor,
-            videoTitleFontSize,
-            "black",
-            3
-          );
-          videoFilters.push(...videoTitleRes.textFilters);
+        // Convert global timeline time to local video time (relative to this clip's start)
+        // Note: FFmpeg time starts at 0 for each video after trim filter
+        const localStart = segment.startTime - clipInfo.startTime;
+        const localEnd = segment.endTime - clipInfo.startTime;
 
-          // Process emojis for ranking title
-          for (const e of videoTitleRes.emojis) {
-            try {
-              const emojiPath = await getEmojiPath(e.codepoint);
-              emojiConfigs.push({
-                emojiPath,
-                x: e.x,
-                y: e.y,
-                width: e.size,
-                height: e.size,
-                inputIndex: -1, // Will be set later
-              });
-            } catch (err) {
-              console.error(`Failed to load emoji ${e.codepoint}:`, err);
-            }
+        console.log(
+          `[Timeline]   Segment slot ${segment.slotIndex}: ${localStart}s - ${localEnd}s (local)`
+        );
+
+        const videoTitleFontSize = segment.title[0]?.fontSize || 52;
+        const videoTitleRes = createFormattedTextFiltersWithEmojis(
+          segment.title,
+          90,
+          yPos + 4,
+          rankingFont,
+          titleColor,
+          videoTitleFontSize,
+          "black",
+          3
+        );
+
+        // Add enable filter to each text filter for precise timing
+        const enabledFilters = videoTitleRes.textFilters.map((filter) => {
+          // Add enable expression to show titles only during their time window
+          return `${filter}:enable='between(t,${localStart},${localEnd})'`;
+        });
+
+        videoFilters.push(...enabledFilters);
+
+        // Process emojis
+        for (const e of videoTitleRes.emojis) {
+          try {
+            const emojiPath = await getEmojiPath(e.codepoint);
+            emojiConfigs.push({
+              emojiPath,
+              x: e.x,
+              y: e.y,
+              width: e.size,
+              height: e.size,
+              inputIndex: -1,
+              // TODO: Add enable timing for emoji overlays if needed
+            });
+          } catch (err) {
+            console.error(`Failed to load emoji ${e.codepoint}:`, err);
           }
         }
       }
@@ -511,7 +603,7 @@ export async function createRankingVideo(
           ])
           .output(outputPath)
           .on("start", (cmd) => console.log(`FFmpeg command: ${cmd}`))
-          .on("stderr", (line) => console.log(`FFmpeg stderr: ${line}`))
+          // .on("stderr", (line) => console.log(`FFmpeg stderr: ${line}`))
           .on("end", () => {
             console.log(`Successfully processed video ${video.rank}`);
             processedVideos.push(outputPath);

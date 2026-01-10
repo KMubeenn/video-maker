@@ -11,7 +11,8 @@ import type { RankingVideoInput } from "../../api/video.api";
  */
 export interface VideoInput
   extends Omit<RankingVideoInput, "title" | "memeSounds"> {
-  id: number;
+  id: number; // Stable unique ID for drag-and-drop and React keys
+  videoNumber: number; // Immutable display number (1-6), never changes on reorder
   title: TextSegment[];
   memeSounds?: VideoMemeSound[];
 }
@@ -49,9 +50,13 @@ export interface PreviewProps {
 /**
  * Default empty video input factory.
  */
-export function createEmptyVideoInput(id: number): VideoInput {
+export function createEmptyVideoInput(
+  id: number,
+  videoNumber: number
+): VideoInput {
   return {
     id,
+    videoNumber,
     url: "",
     title: [{ text: "", color: "white", fontSize: 52 }],
     memeSounds: [],
