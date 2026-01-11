@@ -3,6 +3,30 @@
 
 import type { TextSegment } from "../../components/RichTextInput";
 
+export type TitleContext = "global" | "clip";
+
+export interface TitlePreset {
+  id: string;
+  label: string;
+  context: TitleContext;
+  style?: React.CSSProperties;
+  // Animation identifer for Remotion & Canvas
+  // Animation identifer for Remotion & Canvas
+  animation?:
+    | "none"
+    | "fade"
+    | "fade-left"
+    | "fade-right"
+    | "fade-up"
+    | "fade-down"
+    | "slide-left"
+    | "slide-right"
+    | "slide-up"
+    | "slide-down"
+    | "pop"
+    | "scale-in";
+}
+
 /**
  * Audio track for a clip (e.g., meme sound).
  */
@@ -24,8 +48,15 @@ export type EditedClip = {
   crop?: { x: number; y: number; width: number; height: number };
   audio?: AudioTrack[]; // Accommodate multiple audio tracks (meme sounds)
   title?: TextSegment[]; // Accommodate rich text title
+  titlePresetId?: string; // [NEW] Reference to selected preset
   resolution?: { width: number; height: number }; // Native resolution for accurate rendering
   slotIndex: number; // Display number (1-based)
+  // [NEW] Allow overriding preset context for specific clips if needed, though usually inferred
+};
+
+export type MainTitleConfig = {
+  text: TextSegment[];
+  presetId?: string;
 };
 
 /**
@@ -34,7 +65,7 @@ export type EditedClip = {
  */
 export type RenderSpec = {
   fps: number;
-  mainTitle: TextSegment[];
+  mainTitle?: MainTitleConfig;
   slots: Array<{
     slotIndex: number;
     id: string; // used for keying

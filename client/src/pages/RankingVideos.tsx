@@ -30,6 +30,7 @@ import {
   type PreviewState,
   createEmptyEditedClip,
 } from "../features/ranking";
+import { getPresetsByContext } from "../features/ranking/title-presets";
 
 import { Player } from "@remotion/player";
 import { RankingComposition } from "../remotion/RankingComposition";
@@ -55,6 +56,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from "@/components/ui/select";
 import {
   Loader2,
@@ -78,6 +81,9 @@ export default function RankingVideos() {
   const [mainTitle, setMainTitle] = useState<TextSegment[]>([
     { text: "", color: "white", fontSize: 64 }, // Medium (64px) default for main title
   ]);
+  const [mainTitlePresetId, setMainTitlePresetId] =
+    useState<string>("clean-impact");
+
   const [videoCount, setVideoCount] = useState<3 | 4 | 5 | 6>(3);
   const [videos, setVideos] = useState<EditedClip[]>([
     createEmptyEditedClip("1", 1),
@@ -241,13 +247,14 @@ export default function RankingVideos() {
     };
 
     fetchMetadata();
-  }, [videos, resolvingIndices]);
+    fetchMetadata();
+  }, [videos, resolvingIndices, failedResolutions]);
 
   // Remotion Spec & Duration
   const fps = 30;
   const spec = useMemo(
-    () => buildRenderSpec(videos, mainTitle, fps),
-    [videos, mainTitle]
+    () => buildRenderSpec(videos, mainTitle, mainTitlePresetId, fps),
+    [videos, mainTitle, mainTitlePresetId]
   );
   const durationInFrames = useMemo(() => {
     return (
@@ -302,12 +309,17 @@ export default function RankingVideos() {
 
   const handleVideoChange = (
     index: number,
-    field: "url" | "title",
+    field: "url" | "title" | "preset",
     value: string | TextSegment[]
   ) => {
     const newVideos = [...videos];
     if (field === "url") {
       newVideos[index] = { ...newVideos[index], src: value as string };
+    } else if (field === "preset") {
+      newVideos[index] = {
+        ...newVideos[index],
+        titlePresetId: value as string,
+      };
     } else {
       newVideos[index] = { ...newVideos[index], title: value as TextSegment[] };
     }
@@ -480,6 +492,7 @@ export default function RankingVideos() {
           cropY: v.crop?.y,
           cropWidth: v.crop?.width,
           cropHeight: v.crop?.height,
+          titlePresetId: v.titlePresetId, // [NEW] Pass preset ID
           memeSounds: v.audio?.map((a) => ({
             id: Math.random().toString(), // Helper for legacy API
             soundId: "custom",
@@ -490,7 +503,18 @@ export default function RankingVideos() {
         })),
         width,
         height,
-        spec
+        // Override spec with preset info (hacky until we update buildRenderSpec fully or pass it distinctly)
+        {
+          ...spec,
+          sequence: spec.sequence.map((s) => ({
+            ...s,
+            clip: {
+              ...s.clip,
+              titlePresetId: videos.find((v) => v.id === s.clip.id)
+                ?.titlePresetId,
+            },
+          })),
+        }
       );
       // Extract failed video indices from warnings
       const failedIndices = new Set<number>();
@@ -614,6 +638,7 @@ export default function RankingVideos() {
           src: dbVideo.clip_url,
           duration: 0, // Unknown initially
           title: titleSegments,
+          titlePresetId: "simple-highlight", // Default clip preset
           audio: [],
         });
       } else {
@@ -659,15 +684,69 @@ export default function RankingVideos() {
         {/* Left Column - Controls */}
         <div className="controls-column">
           {/* Main Title Input */}
-          <div className="main-title-section">
-            <RichTextInput
-              label="Main Video Title"
-              value={mainTitle}
-              onChange={setMainTitle}
-              placeholder="e.g., Top 3 Most Viral TikToks of 2024"
-              disabled={false}
-              mainTitle
-            />
+          {/* Main Title Section - Visually Separated */}
+          <div className="main-title-section mb-6 p-4 border rounded-xl bg-card/50 shadow-sm">
+            <div className="flex items-center gap-2 mb-4 border-b pb-2">
+              <span className="text-xl">🎬</span>
+              <h3 className="font-semibold text-lg text-foreground">
+                Main / Global Title
+              </h3>
+              <Badge variant="outline" className="ml-auto text-xs font-normal">
+                Global Context
+              </Badge>
+            </div>
+
+            <div className="flex justify-between items-center mb-2 gap-2">
+              <div className="flex flex-col gap-1 flex-1">
+                <Label className="text-xs text-muted-foreground">
+                  Global Preset (Main Title Only)
+                </Label>
+                <Select
+                  value={mainTitlePresetId}
+                  onValueChange={setMainTitlePresetId}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select Global Style" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Fades</SelectLabel>
+                      {getPresetsByContext("global")
+                        .filter((p) => p.animation?.includes("fade"))
+                        .map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Slides & Scale</SelectLabel>
+                      {getPresetsByContext("global")
+                        .filter((p) => !p.animation?.includes("fade"))
+                        .map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="mt-2">
+              <Label className="text-xs text-muted-foreground mb-1 block">
+                Title Text
+              </Label>
+              <RichTextInput
+                label=""
+                value={mainTitle}
+                onChange={setMainTitle}
+                placeholder="e.g., Top 3 Most Viral TikToks of 2024"
+                disabled={false}
+                mainTitle
+              />
+            </div>
           </div>
 
           {/* Video Count Selector */}
@@ -817,6 +896,38 @@ export default function RankingVideos() {
                           )}
                         </div>
                       </div>
+                      <div className="flex justify-between items-center mb-1 px-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                          Clip Title Style
+                          <Badge
+                            variant="secondary"
+                            className="h-4 px-1 text-[10px] pointer-events-none"
+                          >
+                            Clip Context
+                          </Badge>
+                        </Label>
+                        <Select
+                          value={video.titlePresetId || "simple-highlight"}
+                          onValueChange={(val) =>
+                            handleVideoChange(index, "preset", val)
+                          }
+                        >
+                          <SelectTrigger className="w-35 h-8 text-xs">
+                            <SelectValue placeholder="Style" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getPresetsByContext("clip").map((p) => (
+                              <SelectItem
+                                key={p.id}
+                                value={p.id}
+                                className="text-xs"
+                              >
+                                {p.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <RichTextInput
                         value={video.title!}
                         onChange={(segments) =>
@@ -961,6 +1072,23 @@ export default function RankingVideos() {
                 initiallyShowControls
               />
             </div>
+            {/* <div className="rounded-xl overflow-hidden shadow-2xl border bg-black w-full relative z-0 mx-auto"
+              style={{
+                aspectRatio: `${width}/${height}`,
+                maxHeight: "calc(100vh - 200px)",
+              }}
+            >
+               <RealtimePreview
+                mainTitle={mainTitle}
+                mainTitleDuration={mainTitleDuration}
+                mainTitlePresetId={mainTitlePresetId}
+                videos={videos}
+                width={width}
+                height={height}
+                onTimeUpdate={() => {}}
+                onPlayStateChange={() => {}}
+              />
+            </div> */}
             <div className="text-xs text-muted-foreground text-center">
               Preview updates automatically as you edit
             </div>

@@ -5,9 +5,13 @@ import {
   Audio,
   OffthreadVideo,
   useVideoConfig,
+  useCurrentFrame,
+  interpolate,
+  Easing,
 } from "remotion";
 import type { RenderSpec, EditedClip } from "../features/ranking/types";
 import { type TextSegment } from "../components/RichTextInput";
+import { getPresetById } from "../features/ranking/title-presets";
 
 // --- Helpers ---
 
@@ -106,6 +110,192 @@ const RenderRichText: React.FC<{
         />
       ))}
     </div>
+  );
+};
+
+const AnimatedTitle: React.FC<{
+  children: React.ReactNode;
+  animation?:
+    | "none"
+    | "fade"
+    | "fade-left"
+    | "fade-right"
+    | "fade-up"
+    | "fade-down"
+    | "slide-left"
+    | "slide-right"
+    | "slide-up"
+    | "slide-down"
+    | "pop"
+    | "scale-in";
+  fps: number;
+}> = ({ children, animation = "fade" }) => {
+  const frame = useCurrentFrame();
+
+  if (animation === "none") {
+    return <>{children}</>;
+  }
+
+  // --- Animation Primitives ---
+
+  // Basic Opacity (0 -> 1 over 15 frames)
+  const opacity = interpolate(frame, [0, 15], [0, 1], {
+    extrapolateRight: "clamp",
+  });
+
+  // Scale (0.8 -> 1 with elastic bounce)
+  const scale = interpolate(frame, [0, 20], [0.5, 1], {
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.elastic(1.2)),
+  });
+
+  // Slide Offset (Generic)
+  const slideOffset = interpolate(frame, [0, 20], [100, 0], {
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.ease),
+  });
+
+  // Fade Offset (Subtle)
+  const fadeOffset = interpolate(frame, [0, 20], [30, 0], {
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.ease),
+  });
+
+  // --- Logic Mapping ---
+
+  // 1. FADE VARIANTS
+  if (animation === "fade") {
+    return <div style={{ opacity }}>{children}</div>;
+  }
+  if (animation === "fade-up") {
+    return (
+      <div style={{ opacity, transform: `translateY(${fadeOffset}px)` }}>
+        {children}
+      </div>
+    );
+  }
+  if (animation === "fade-down") {
+    return (
+      <div style={{ opacity, transform: `translateY(-${fadeOffset}px)` }}>
+        {children}
+      </div>
+    );
+  }
+  if (animation === "fade-left") {
+    return (
+      <div style={{ opacity, transform: `translateX(${fadeOffset}px)` }}>
+        {children}
+      </div>
+    );
+  }
+  if (animation === "fade-right") {
+    return (
+      <div style={{ opacity, transform: `translateX(-${fadeOffset}px)` }}>
+        {children}
+      </div>
+    );
+  }
+
+  // 2. SLIDE VARIANTS (More movement, full opacity faster)
+  // For slides, we might want full opacity sooner to see the movement
+  const slideOpacity = interpolate(frame, [0, 10], [0, 1], {
+    extrapolateRight: "clamp",
+  });
+
+  if (animation === "slide-up") {
+    return (
+      <div
+        style={{
+          opacity: slideOpacity,
+          transform: `translateY(${slideOffset}px)`,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+  if (animation === "slide-down") {
+    return (
+      <div
+        style={{
+          opacity: slideOpacity,
+          transform: `translateY(-${slideOffset}px)`,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+  if (animation === "slide-left") {
+    return (
+      <div
+        style={{
+          opacity: slideOpacity,
+          transform: `translateX(${slideOffset}px)`,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+  if (animation === "slide-right") {
+    return (
+      <div
+        style={{
+          opacity: slideOpacity,
+          transform: `translateX(-${slideOffset}px)`,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  // 3. SCALE / POP VARIANTS
+  if (animation === "scale-in") {
+    const cleanScale = interpolate(frame, [0, 20], [0.8, 1], {
+      extrapolateRight: "clamp",
+      easing: Easing.out(Easing.cubic),
+    });
+    return (
+      <div style={{ opacity, transform: `scale(${cleanScale})` }}>
+        {children}
+      </div>
+    );
+  }
+
+  if (animation === "pop") {
+    // Pop starts small, overshoots slightly
+    return (
+      <div style={{ opacity, transform: `scale(${scale})` }}>{children}</div>
+    );
+  }
+
+  // Fallback
+  return <div style={{ opacity }}>{children}</div>;
+};
+
+const TitleOverlay: React.FC<{
+  text: TextSegment[];
+  presetId?: string;
+  style?: React.CSSProperties;
+  borderColor?: string;
+  fps: number;
+}> = ({ text, presetId, style, borderColor, fps }) => {
+  const preset = getPresetById(presetId);
+  const animation = preset?.animation || "fade";
+
+  return (
+    <AnimatedTitle animation={animation} fps={fps}>
+      <RenderRichText
+        segments={text}
+        borderColor={borderColor}
+        style={{
+          ...style,
+          ...preset?.style,
+        }}
+      />
+    </AnimatedTitle>
   );
 };
 
@@ -224,9 +414,9 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
   const rankingStartY = titleHeight + (videoHeight - totalRankingHeight) / 2;
 
   // Calculate total composition duration for persistent titles
-  const totalDuration = spec.sequence.reduce(
-    (sum, item) => sum + item.durationInFrames,
-    0
+  const totalDuration = Math.max(
+    1,
+    spec.sequence.reduce((sum, item) => sum + item.durationInFrames, 0)
   );
 
   return (
@@ -242,22 +432,26 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
         </Sequence>
       ))}
 
-      {/* Layer 1: Main Title (Always Visible) */}
+      {/* Layer 1: Main Title (Persistent) */}
       {spec.mainTitle && (
-        <AbsoluteFill>
-          <RenderRichText
-            segments={spec.mainTitle}
-            style={{
-              position: "absolute",
-              width: 900,
-              left: "50%",
-              top: 180,
-              transform: "translateX(-50%)",
-              justifyContent: "center",
-              textAlign: "center",
-            }}
-          />
-        </AbsoluteFill>
+        <Sequence from={0} durationInFrames={totalDuration}>
+          <AbsoluteFill>
+            <TitleOverlay
+              text={spec.mainTitle.text}
+              presetId={spec.mainTitle.presetId}
+              fps={spec.fps}
+              style={{
+                position: "absolute",
+                width: 900,
+                left: "50%",
+                top: 180,
+                transform: "translateX(-50%)",
+                justifyContent: "center",
+                textAlign: "center",
+              }}
+            />
+          </AbsoluteFill>
+        </Sequence>
       )}
 
       {/* Layer 2: Static Slot Numbers (White, Always Visible) */}
@@ -294,33 +488,34 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
           <Sequence
             key={`highlight-${item.clip.id}`}
             from={item.startFrame}
-            durationInFrames={totalDuration - item.startFrame}
+            durationInFrames={item.durationInFrames}
           >
             {/* Highlight Number */}
-            <div
-              style={{
-                position: "absolute",
-                top: yPos,
-                left: 30,
-                fontFamily: "Impact, Arial, sans-serif",
-                fontSize: 52,
-                color: "#ffff00", // Yellow highlight
-                WebkitTextStroke: "3px black",
-              }}
-            >
-              {item.clip.slotIndex}.
-            </div>
+            <AnimatedTitle animation="fade" fps={spec.fps}>
+              <div
+                style={{
+                  position: "absolute",
+                  top: yPos,
+                  left: 30,
+                  fontFamily: "Impact, Arial, sans-serif",
+                  fontSize: 52,
+                  color: "#ffff00", // Yellow highlight
+                  WebkitTextStroke: "3px black",
+                }}
+              >
+                {item.clip.slotIndex}.
+              </div>
+            </AnimatedTitle>
 
             {/* Ranking Title */}
-            <RenderRichText
-              segments={item.clip.title.map((t) => ({
+            <TitleOverlay
+              text={item.clip.title.map((t) => ({
                 ...t,
                 color: t.color === "white" ? "#ffff00" : t.color,
-              }))} // Inherit yellow color priority?
-              // Actually RealtimePreview logic says: "color = isCurrentActive ? '#ffff00' : 'white'"
-              // And "text: rankingVideo.title.map(t => ({...t, color: t.color || color}))"
-              // So if t.color is set, keep it, else use yellow.
-              borderColor="black" // Black border for ranking titles
+              }))}
+              presetId={item.clip.titlePresetId}
+              fps={spec.fps}
+              borderColor="black"
               style={{
                 position: "absolute",
                 top: yPos + 2,
