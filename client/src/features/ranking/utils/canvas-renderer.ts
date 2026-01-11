@@ -17,12 +17,21 @@ export const normalizeColor = (color: string | undefined): string => {
   return map[color] || color;
 };
 
+// Helper to build font string
+const getFontString = (seg: TextSegment, defaultSize: number) => {
+  const size = seg.fontSize || defaultSize;
+  const style = seg.italic ? "italic" : "";
+  const weight = seg.bold ? "bold" : "";
+  return `${style} ${weight} ${size}px Impact, Arial, sans-serif`.trim();
+};
+
 export const measureSegment = (
   ctx: CanvasRenderingContext2D,
   text: string,
-  fontSize: number
+  segment: TextSegment,
+  defaultFontSize: number
 ) => {
-  ctx.font = `${fontSize}px Impact, Arial, sans-serif`;
+  ctx.font = getFontString(segment, defaultFontSize);
   return ctx.measureText(text).width;
 };
 
@@ -43,7 +52,14 @@ export const wrapTextStats = (
     for (let i = 0; i < words.length; i++) {
       const word = words[i];
       const wordWithSpace = word + (i < words.length - 1 ? " " : "");
-      const wordW = measureSegment(ctx, wordWithSpace, fontSize);
+      // Create a temporary segment for measurement to preserve styles
+      const measureSeg = { ...seg, fontSize: fontSize };
+      const wordW = measureSegment(
+        ctx,
+        wordWithSpace,
+        measureSeg,
+        defaultFontSize
+      );
 
       if (currentLineWidth + wordW > maxWidth && currentLine.length > 0) {
         lines.push(currentLine);
@@ -104,9 +120,7 @@ export function renderOverlay(
   overlay: TextOverlay,
   width: number
 ) {
-  // height is unused as title area is fixed/derived
   ctx.save();
-  const fontBase = "Impact, Arial, sans-serif";
   const getSegColor = (seg: TextSegment) => normalizeColor(seg.color);
 
   if (overlay.type === "main-title") {
@@ -123,10 +137,9 @@ export function renderOverlay(
 
     lines.forEach((line, lineIdx) => {
       let lineWidth = 0;
-      line.forEach((s) => {
-        const segFontSize = s.fontSize || defaultFontSize;
-        ctx.font = `${segFontSize}px ${fontBase}`;
-        for (const char of s.text) {
+      line.forEach((seg) => {
+        ctx.font = getFontString(seg, defaultFontSize);
+        for (const char of seg.text) {
           lineWidth += ctx.measureText(char).width + letterSpacing;
         }
       });
@@ -145,7 +158,7 @@ export function renderOverlay(
 
       line.forEach((seg) => {
         const segFontSize = seg.fontSize || defaultFontSize;
-        ctx.font = `${segFontSize}px ${fontBase}`;
+        ctx.font = getFontString(seg, defaultFontSize);
         const segColor = getSegColor(seg);
 
         const isWhiteColor =
@@ -199,7 +212,7 @@ export function renderOverlay(
       let currentX = typeof overlay.x === "number" ? overlay.x : 90;
       line.forEach((seg) => {
         const segFontSize = seg.fontSize || defaultFontSize;
-        ctx.font = `${segFontSize}px ${fontBase}`;
+        ctx.font = getFontString(seg, defaultFontSize);
         const segColor = getSegColor(seg);
 
         const parsed = parseTextToSegments(seg.text);
@@ -234,12 +247,11 @@ export function renderOverlay(
       currentY += lineHeight;
     });
   } else if (overlay.type === "ranking-number") {
-    const fontSize = 52;
     let currentX = 30;
     const currentY = overlay.y;
 
     overlay.text.forEach((seg) => {
-      ctx.font = `${seg.fontSize || fontSize}px ${fontBase}`;
+      ctx.font = getFontString(seg, 52); // Number always 52? Use default
       ctx.fillStyle = getSegColor(seg);
       ctx.strokeStyle = "black";
       ctx.lineWidth = 3;

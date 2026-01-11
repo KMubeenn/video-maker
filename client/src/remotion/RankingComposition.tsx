@@ -73,6 +73,9 @@ const ParsedTextToken: React.FC<{
         fontFamily: "Impact, Arial, sans-serif",
         fontSize,
         letterSpacing: "2px", // Add spacing between letters
+        fontWeight: segment.bold ? "bold" : "normal",
+        fontStyle: segment.italic ? "italic" : "normal",
+        textDecoration: segment.underline ? "underline" : "none",
         WebkitTextStroke: hasBorder ? `4px ${borderColor}` : "none",
         paintOrder: "stroke fill",
         marginRight: 4,
