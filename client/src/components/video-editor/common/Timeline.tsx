@@ -9,38 +9,82 @@ export function Timeline() {
     activeTool,
     clipDuration,
     relativeCurrentTime,
+    setTrim,
   } = useVideoEditor();
 
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = React.useState<"start" | "end" | null>(null);
 
   const { trim, duration: metaDuration, audio: sounds } = editorState;
   const start = trim.start;
   const end = trim.end;
-  const duration = metaDuration || 1;
+  // Fallback duration to slightly larger than end if meta is missing, or 10s default
+  const duration = metaDuration || Math.max(end, 10);
 
   const getPercent = (time: number) => (time / duration) * 100;
 
-  // Handle Scrubs
+  // Global Drag Handlers
+  React.useEffect(() => {
+    if (!dragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!timelineRef.current) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      // Calculate generic time at pointer
+      const rawPos = (e.clientX - rect.left) / rect.width;
+      const time = Math.max(0, Math.min(duration, rawPos * duration));
+
+      if (dragging === "start") {
+        // Enforce min duration of 0.5s or similar to prevent overlapping/inversion
+        const maxStart = Math.max(0, end - 0.5);
+        const newStart = Math.min(time, maxStart);
+        setTrim(newStart, end);
+        // Snap playhead to start when dragging start
+        setCurrentTime(newStart);
+      } else if (dragging === "end") {
+        const minEnd = Math.min(start + 0.5, duration);
+        const newEnd = Math.max(time, minEnd);
+        setTrim(start, newEnd);
+        // Optional: Snap playhead to end or keep it if within range?
+        // Usually showing the end frame is helpful.
+        setCurrentTime(newEnd);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setDragging(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragging, duration, end, start, setTrim, setCurrentTime]);
+
+  // Handle Scrub on background (only if not dragging handle)
   const handleTimelineClick = (e: React.MouseEvent) => {
+    // If we just released a drag, don't jump (though mouseup happens on window, click might bubble)
+    // We can prevent this by checking if we were JUST dragging, but simplicity first.
+    // Actually, Click fires after MouseUp. If we want to support click-to-seek,
+    // it's benign if it fires after drag, but better to check target.
+
+    // For now, let's allow click-to-seek if the user clicks the track directly.
     if (!timelineRef.current) return;
     const rect = timelineRef.current.getBoundingClientRect();
     const pos = (e.clientX - rect.left) / rect.width;
-    const time = pos * duration;
+    const time = Math.max(0, Math.min(duration, pos * duration));
 
-    // Clamp
-    const newTime = Math.min(Math.max(0, time), duration);
-    // If outside trim, maybe clamp to trim? For now free scrub.
-    setCurrentTime(newTime);
+    setCurrentTime(time);
   };
 
   const startPercent = getPercent(start);
   const endPercent = getPercent(end);
   const playheadPercent = getPercent(currentTime);
 
-  // Separate rendering for "Sounds" vs "Trim/Crop"
-  // If activeTool is 'sounds', maybe we show the TIMELINE relative to the TRIMMED CLIP?
-  // The original design had two different visualization modes.
-
+  // --- SOUNDS EDITOR MODE ---
   if (activeTool === "sounds") {
     // Show timeline relative to TRIMMED clip
     return (
@@ -87,60 +131,92 @@ export function Timeline() {
     );
   }
 
-  // DEFAULT TIMELINE (Trim/Crop)
+  // --- DEFAULT TIMELINE (Trim/Crop) ---
   return (
     <div className="w-full h-full flex flex-col justify-center select-none">
       {/* Labels */}
       <div className="flex justify-between text-xs text-zinc-500 mb-2 font-mono">
-        <span>{Math.round(start * 10) / 10}s</span>
-        <span className="uppercase tracking-wider font-semibold text-zinc-600">
-          Timeline
-        </span>
-        <span>{Math.round(end * 10) / 10}s</span>
+        <span>0.0s</span>
+        <div className="flex gap-4">
+          <span className="uppercase tracking-wider font-semibold text-zinc-600">
+            Timeline
+          </span>
+          <span className="text-zinc-400 font-mono">
+            {Math.round(start * 100) / 100}s - {Math.round(end * 100) / 100}s
+          </span>
+        </div>
+        <span>{Math.round(duration * 10) / 10}s</span>
       </div>
 
       {/* Track */}
       <div
-        className="relative h-8 bg-zinc-950 rounded-md border border-zinc-800 cursor-pointer group overflow-hidden"
+        className="relative h-8 bg-zinc-950 rounded-md border border-zinc-800 cursor-pointer group"
         ref={timelineRef}
-        onClick={handleTimelineClick}
+        // Use MouseDown for seek to avoid conflicting with Drag MouseUp
+        onMouseDown={handleTimelineClick}
       >
-        {/* Dimmed Areas */}
+        {/* Dimmed Areas (Visualizing what is trimmed OUT) */}
         <div
-          className="absolute top-0 bottom-0 left-0 bg-black/70 backdrop-blur-[1px]"
+          className="absolute top-0 bottom-0 left-0 bg-black/70 backdrop-blur-[1px] pointer-events-none"
           style={{ width: `${startPercent}%` }}
         />
         <div
-          className="absolute top-0 bottom-0 right-0 bg-black/70 backdrop-blur-[1px]"
+          className="absolute top-0 bottom-0 right-0 bg-black/70 backdrop-blur-[1px] pointer-events-none"
           style={{ width: `${100 - endPercent}%` }}
         />
 
-        {/* Active Area */}
+        {/* Active Area (The kept clip) */}
         <div
-          className="absolute top-0 bottom-0 bg-primary/10 border-y border-primary/20"
+          className="absolute top-0 bottom-0 bg-primary/10 border-y border-primary/20 pointer-events-none"
           style={{
             left: `${startPercent}%`,
-            width: `${endPercent - startPercent}%`,
+            width: `${Math.max(0, endPercent - startPercent)}%`,
           }}
         />
 
-        {/* Trim Handles */}
+        {/* Trim Start Handle */}
         <div
-          className="absolute top-0 bottom-0 w-2 bg-primary hover:bg-primary/90 cursor-ew-resize z-10 -ml-1 flex items-center justify-center transition-colors"
+          className={`absolute top-0 bottom-0 w-4 -ml-2 flex items-center justify-center cursor-ew-resize z-20 transition-colors ${
+            dragging === "start"
+              ? "text-primary scale-110"
+              : "text-primary/70 hover:text-primary"
+          }`}
           style={{ left: `${startPercent}%` }}
+          onMouseDown={(e) => {
+            e.stopPropagation(); // Prevent seek
+            setDragging("start");
+          }}
         >
-          <div className="h-4 w-0.5 bg-black/20" />
+          <div className="h-full w-0.5 bg-current" />
+          <div
+            className="absolute w-3 h-3 bg-current rounded-full shadow-sm"
+            style={{ top: "50%", transform: "translateY(-50%)" }}
+          />
         </div>
+
+        {/* Trim End Handle */}
         <div
-          className="absolute top-0 bottom-0 w-2 bg-primary hover:bg-primary/90 cursor-ew-resize z-10 -ml-1 flex items-center justify-center transition-colors"
+          className={`absolute top-0 bottom-0 w-4 -ml-2 flex items-center justify-center cursor-ew-resize z-20 transition-colors ${
+            dragging === "end"
+              ? "text-primary scale-110"
+              : "text-primary/70 hover:text-primary"
+          }`}
           style={{ left: `${endPercent}%` }}
+          onMouseDown={(e) => {
+            e.stopPropagation(); // Prevent seek
+            setDragging("end");
+          }}
         >
-          <div className="h-4 w-0.5 bg-black/20" />
+          <div className="h-full w-0.5 bg-current" />
+          <div
+            className="absolute w-3 h-3 bg-current rounded-full shadow-sm"
+            style={{ top: "50%", transform: "translateY(-50%)" }}
+          />
         </div>
 
         {/* Playhead */}
         <div
-          className="absolute -top-1 -bottom-1 w-px bg-white z-20 shadow pointer-events-none transition-all"
+          className="absolute -top-1 -bottom-1 w-px bg-white z-10 shadow pointer-events-none transition-all duration-75 ease-out"
           style={{ left: `${playheadPercent}%` }}
         >
           <div className="absolute top-0 -left-[3px] w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-white" />

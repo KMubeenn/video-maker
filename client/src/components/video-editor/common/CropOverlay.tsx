@@ -150,15 +150,7 @@ export function CropOverlay({ videoRect }: { videoRect: DOMRect | null }) {
   const displayH = crop.height * videoRect.height;
 
   return (
-    <div
-      className="absolute pointer-events-auto"
-      style={{
-        left: 0,
-        top: 0,
-        width: videoRect.width,
-        height: videoRect.height,
-      }}
-    >
+    <div className="absolute pointer-events-auto inset-0 w-full h-full">
       {/* Dimmed Backgrounds (Hole Punch) */}
       <div
         className="absolute bg-black/50 backdrop-blur-[1px]"
