@@ -34,9 +34,10 @@ export function VideoPreview({ url }: VideoPreviewProps) {
   };
 
   useEffect(() => {
+    measureVideo();
     window.addEventListener("resize", measureVideo);
     return () => window.removeEventListener("resize", measureVideo);
-  }, []);
+  }, [editorState.nativeWidth, editorState.nativeHeight, activeTool]);
 
   // Sync Playback State -> Video Element
   useEffect(() => {
@@ -107,42 +108,73 @@ export function VideoPreview({ url }: VideoPreviewProps) {
   // For brevity in this step, I will implement a simplified version or reuse the logic.
 
   // NOTE: We need accurate scaling for generic container.
-  // Let's rely on standard bounding rect math.
+  // Calculate aspect ratio for the wrapper
+  const aspectRatio =
+    nativeWidth && editorState.nativeHeight
+      ? nativeWidth / editorState.nativeHeight
+      : 16 / 9;
+
+  // Ensure metadata is captured if already loaded
+  useEffect(() => {
+    if (videoRef.current && videoRef.current.readyState >= 1) {
+      handleLoadedMetadata();
+    }
+  }, []);
 
   return (
-    <div className="relative w-full h-full flex items-center justify-center bg-transparent">
-      {/* Video Element */}
-      <video
-        ref={videoRef}
-        src={url}
-        className="max-w-full max-h-full object-contain shadow-2xl"
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onEnded={() => {
-          // Fallback if loop logic misses (video ends exactly at duration)
-          if (trimEnd >= duration) {
-            videoRef.current!.currentTime = trimStart;
-            setCurrentTime(trimStart);
-            videoRef.current!.play();
-          }
-        }}
-        onClick={togglePlay}
-      />
+    <div className="relative w-full h-full flex items-center justify-center bg-transparent overflow-hidden">
+      {/* Video Content Wrapper - Uses aspect-ratio to strictly size itself to the video content within the parent constraints */}
+      <div
+        className="relative max-w-full max-h-full flex flex-col items-center justify-center shadow-2xl"
+        style={{ aspectRatio }}
+      >
+        {/* Video Element */}
+        <video
+          ref={videoRef}
+          src={url}
+          className="w-full h-full object-contain block"
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          onEnded={() => {
+            // Fallback if loop logic misses (video ends exactly at duration)
+            if (trimEnd >= duration) {
+              videoRef.current!.currentTime = trimStart;
+              setCurrentTime(trimStart);
+              videoRef.current!.play();
+            }
+          }}
+          onClick={togglePlay}
+        />
 
-      {/* Audio Indicator */}
-      {editorState.audio.length > 0 && (
-        <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md p-2 rounded-full border border-white/10 text-white animate-fade-in shadow-xl z-10">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className="w-4 h-4"
-          >
-            <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06zM18.584 5.106a.75.75 0 011.06 0c3.808 3.807 3.808 9.98 0 13.788a.75.75 0 11-1.06-1.06 8.25 8.25 0 000-11.668.75.75 0 010-1.06z" />
-            <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.06z" />
-          </svg>
-        </div>
-      )}
+        {/* Audio Indicator */}
+        {editorState.audio.length > 0 && (
+          <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md p-2 rounded-full border border-white/10 text-white animate-fade-in shadow-xl z-20 pointer-events-none">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="w-4 h-4"
+            >
+              <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06zM18.584 5.106a.75.75 0 011.06 0c3.808 3.807 3.808 9.98 0 13.788a.75.75 0 11-1.06-1.06 8.25 8.25 0 000-11.668.75.75 0 010-1.06z" />
+              <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.06z" />
+            </svg>
+          </div>
+        )}
+
+        {/* Play Overlay */}
+        {!isPlaying && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+            <div className="bg-white/10 backdrop-blur-sm p-4 rounded-full shadow-lg border border-white/20">
+              <div className="text-4xl ml-1 text-white">▶</div>
+            </div>
+          </div>
+        )}
+
+        {/* Crop Overlay - Only visible when ActiveTool is Crop */}
+        {activeTool === "crop" && nativeWidth > 0 && videoRect && (
+          <CropOverlay videoRect={videoRect} />
+        )}
+      </div>
 
       {/* Trim Visualization Overlay - Mini Timeline on Preview */}
       {duration > 0 && (
@@ -164,20 +196,6 @@ export function VideoPreview({ url }: VideoPreviewProps) {
             }}
           />
         </div>
-      )}
-
-      {/* Play Overlay */}
-      {!isPlaying && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-white/10 backdrop-blur-sm p-4 rounded-full shadow-lg border border-white/20">
-            <div className="text-4xl ml-1 text-white">▶</div>
-          </div>
-        </div>
-      )}
-
-      {/* Crop Overlay - Only visible when ActiveTool is Crop */}
-      {activeTool === "crop" && nativeWidth > 0 && videoRect && (
-        <CropOverlay videoRect={videoRect} />
       )}
     </div>
   );
