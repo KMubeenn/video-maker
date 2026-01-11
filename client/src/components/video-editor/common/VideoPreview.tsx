@@ -98,6 +98,57 @@ export function VideoPreview({ url }: VideoPreviewProps) {
     }
   };
 
+  const audioRefs = useRef<{ [key: string]: HTMLAudioElement }>({});
+
+  // Sync Audio Playback
+  useEffect(() => {
+    editorState.audio.forEach((sound) => {
+      const audioEl = audioRefs.current[sound.id];
+      if (!audioEl) {
+        console.warn("Audio element not ref'd for", sound.id);
+        return;
+      }
+
+      const absoluteStartTime = trimStart + sound.startTime;
+      const relTime = currentTime - absoluteStartTime;
+
+      console.log("Audio Debug:", {
+        id: sound.id,
+        file: sound.file,
+        relTime,
+        isPlaying,
+        paused: audioEl.paused,
+        duration: audioEl.duration,
+      });
+
+      // Allow play if starts in valid range. If duration is NaN (loading), allow it (browser handles checks).
+      const duration = isNaN(audioEl.duration) ? Infinity : audioEl.duration;
+
+      if (relTime >= 0 && relTime < duration && isPlaying) {
+        if (audioEl.paused) {
+          audioEl
+            .play()
+            .catch((e) => console.error("Audio Play Error:", sound.file, e));
+        }
+        // Sync time if drifted
+        if (Math.abs(audioEl.currentTime - relTime) > 0.2) {
+          audioEl.currentTime = relTime;
+        }
+      } else {
+        if (!audioEl.paused) {
+          audioEl.pause();
+        }
+        // Reset if we rewound before the start
+        if (relTime < 0 && audioEl.currentTime !== 0) {
+          audioEl.currentTime = 0;
+        }
+      }
+
+      // Volume
+      audioEl.volume = sound.volume ?? 1;
+    });
+  }, [currentTime, isPlaying, editorState.audio, trimStart]);
+
   const togglePlay = () => {
     setPlaybackState(!isPlaying);
   };
@@ -197,6 +248,18 @@ export function VideoPreview({ url }: VideoPreviewProps) {
           />
         </div>
       )}
+      {/* Hidden Audio Elements for Preview */}
+      {editorState.audio.map((sound) => (
+        <audio
+          key={sound.id}
+          ref={(el) => {
+            if (el) audioRefs.current[sound.id] = el;
+            else delete audioRefs.current[sound.id];
+          }}
+          src={sound.file}
+          preload="auto"
+        />
+      ))}
     </div>
   );
 }
