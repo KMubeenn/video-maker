@@ -18,7 +18,18 @@ export interface CropState {
 /**
  * Available aspect ratio presets for cropping.
  */
-export type CropPreset = "9:16" | "1:1" | "16:9" | "freeform";
+/**
+ * Available aspect ratio presets for cropping.
+ */
+export type CropPreset = "9:16" | "1:1" | "16:9" | "4:5" | "freeform";
+
+export const CROP_PRESETS: { id: CropPreset; label: string; icon: string }[] = [
+  { id: "freeform", label: "Freeform", icon: "🔳" },
+  { id: "16:9", label: "16:9 Landscape", icon: "▭" },
+  { id: "4:5", label: "4:5 Portrait", icon: "▯" },
+  { id: "1:1", label: "1:1 Square", icon: "⬜" },
+  { id: "9:16", label: "9:16 Story", icon: "📱" },
+];
 
 /**
  * Calculate a centered crop rectangle for a given aspect ratio preset.
@@ -52,6 +63,9 @@ export function calculateCropFromPreset(
       break;
     case "16:9":
       targetRatio = 16 / 9;
+      break;
+    case "4:5":
+      targetRatio = 4 / 5;
       break;
     default:
       targetRatio = videoWidth / videoHeight;
@@ -197,5 +211,6 @@ export function detectCropPreset(crop: CropState): CropPreset {
   if (Math.abs(ratio - 9 / 16) < tolerance) return "9:16";
   if (Math.abs(ratio - 1) < tolerance) return "1:1";
   if (Math.abs(ratio - 16 / 9) < tolerance) return "16:9";
+  if (Math.abs(ratio - 4 / 5) < tolerance) return "4:5";
   return "freeform";
 }

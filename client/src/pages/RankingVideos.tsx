@@ -332,12 +332,18 @@ export default function RankingVideos() {
   const [editorUrl, setEditorUrl] = useState<string | null>(null);
 
   const handleEditClick = async (index: number) => {
+    console.log("[RankingVideos] handleEditClick called with index:", index);
     const video = videos[index];
-    if (!video.src) return;
+    if (!video.src) {
+      console.warn("[RankingVideos] Video has no src, aborting edit.");
+      return;
+    }
 
+    console.log("[RankingVideos] Opening editor for url:", video.src);
     // Simplified edit logic (removed preparePreview)
     setEditorUrl(video.src);
     setEditingVideoIndex(index);
+    console.log("[RankingVideos] Set editingVideoIndex to:", index);
   };
 
   const handleSaveEdit = (
@@ -988,30 +994,35 @@ export default function RankingVideos() {
         </div>
       </div>
 
-      {editingVideoIndex !== null && (
-        <VideoEditor
-          url={editorUrl || videos[editingVideoIndex].src}
-          isOpen={true}
-          onClose={() => {
-            setEditingVideoIndex(null);
-            setEditorUrl(null);
-          }}
-          onSave={handleSaveEdit}
-          initialTrimStart={videos[editingVideoIndex].trim?.start}
-          initialTrimEnd={videos[editingVideoIndex].trim?.end}
-          initialCropX={videos[editingVideoIndex].crop?.x}
-          initialCropY={videos[editingVideoIndex].crop?.y}
-          initialCropWidth={videos[editingVideoIndex].crop?.width}
-          initialCropHeight={videos[editingVideoIndex].crop?.height}
-          initialMemeSounds={videos[editingVideoIndex].audio?.map((a) => ({
-            id: Math.random().toString(36).substr(2, 9),
-            soundId: "custom",
-            file: a.src,
-            startTime: a.start,
-            volume: a.volume ?? 1.0,
-          }))}
-        />
-      )}
+      {editingVideoIndex !== null &&
+        (console.log(
+          "[RankingVideos] Rendering VideoEditor with index:",
+          editingVideoIndex
+        ),
+        (
+          <VideoEditor
+            url={editorUrl || videos[editingVideoIndex].src}
+            isOpen={true}
+            onClose={() => {
+              setEditingVideoIndex(null);
+              setEditorUrl(null);
+            }}
+            onSave={handleSaveEdit}
+            initialTrimStart={videos[editingVideoIndex].trim?.start}
+            initialTrimEnd={videos[editingVideoIndex].trim?.end}
+            initialCropX={videos[editingVideoIndex].crop?.x}
+            initialCropY={videos[editingVideoIndex].crop?.y}
+            initialCropWidth={videos[editingVideoIndex].crop?.width}
+            initialCropHeight={videos[editingVideoIndex].crop?.height}
+            initialMemeSounds={videos[editingVideoIndex].audio?.map((a) => ({
+              id: Math.random().toString(36).substr(2, 9),
+              soundId: "custom",
+              file: a.src,
+              startTime: a.start,
+              volume: a.volume ?? 1.0,
+            }))}
+          />
+        ))}
 
       {/* Auto-populate Dialog */}
       <Dialog
