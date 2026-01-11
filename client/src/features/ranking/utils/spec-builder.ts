@@ -11,6 +11,7 @@ import type { EditedClip, RenderSpec } from "../types";
 export function buildRenderSpec(
   clips: EditedClip[],
   mainTitle: TextSegment[],
+  mainTitlePresetId?: string,
   fps: number = 30
 ): RenderSpec {
   const sequence: RenderSpec["sequence"] = [];
@@ -19,6 +20,15 @@ export function buildRenderSpec(
     id: c.id,
   }));
   let currentStartFrame = 0;
+
+  // Main Title Config
+  const mainTitleConfig =
+    mainTitle && mainTitle.length > 0
+      ? {
+          text: mainTitle,
+          presetId: mainTitlePresetId,
+        }
+      : undefined;
 
   for (const clip of clips) {
     // Determine duration in seconds
@@ -50,7 +60,7 @@ export function buildRenderSpec(
 
   return {
     fps,
-    mainTitle,
+    mainTitle: mainTitleConfig,
     slots,
     sequence,
   };

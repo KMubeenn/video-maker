@@ -26,6 +26,8 @@ interface RealtimePreviewProps {
   height: number;
   onTimeUpdate?: (time: number) => void;
   onPlayStateChange?: (isPlaying: boolean) => void;
+  mainTitleDuration?: number;
+  mainTitlePresetId?: string;
 }
 
 interface LoadedAsset {
@@ -44,6 +46,8 @@ export function RealtimePreview({
   height,
   onTimeUpdate,
   onPlayStateChange,
+  mainTitleDuration,
+  mainTitlePresetId,
 }: RealtimePreviewProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -364,7 +368,11 @@ export function RealtimePreview({
     }
 
     // Update Main Title duration
-    mainTitleOverlay.endTime = currentOffset;
+    // If explicit duration is set, use it. Otherwise span full video.
+    mainTitleOverlay.endTime =
+      mainTitleDuration && mainTitleDuration > 0
+        ? mainTitleDuration
+        : currentOffset;
 
     setDuration(currentOffset);
     setTimeline({
@@ -376,7 +384,7 @@ export function RealtimePreview({
       width,
       height,
     });
-  }, [mainTitle, videos, width, height]);
+  }, [mainTitle, videos, width, height, mainTitleDuration, mainTitlePresetId]);
 
   // Effect 1: Handle Asset Loading (Debounced)
   useEffect(() => {
