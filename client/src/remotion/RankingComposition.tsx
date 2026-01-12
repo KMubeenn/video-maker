@@ -389,7 +389,7 @@ const ClipLayer: React.FC<{ clip: EditedClip }> = ({ clip }) => {
           >
             {clip.src && isSocialUrl(clip.src)
               ? "RESOLVING..."
-              : `VIDEO ${clip.slotIndex}`}
+              : `VIDEO ${clip.videoNumber}`}
           </div>
         )}
       </div>
@@ -460,7 +460,8 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
       {/* Layer 2: Static Slot Numbers (White, Always Visible) */}
       <AbsoluteFill>
         {spec.slots?.map((slot) => {
-          const yPos = rankingStartY + (slot.slotIndex - 1) * rankingItemHeight;
+          const yPos =
+            rankingStartY + (slot.videoNumber - 1) * rankingItemHeight;
           return (
             <div
               key={`static-slot-${slot.id}`}
@@ -473,16 +474,49 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
                 color: "white",
               }}
             >
-              {slot.slotIndex}.
+              {slot.videoNumber}.
             </div>
           );
         })}
       </AbsoluteFill>
 
+      {/* Layer 2.5: Persistent Titles (User Color, appear when playing, stay forever) */}
+      {spec.sequence.map((item) => {
+        const yPos =
+          rankingStartY + (item.clip.videoNumber - 1) * rankingItemHeight;
+
+        // Only show if title exists
+        if (!item.clip.title) return null;
+
+        return (
+          <Sequence
+            key={`persistent-title-${item.clip.id}`}
+            from={item.startFrame}
+            // Duration is until the end of the video
+            durationInFrames={totalDuration - item.startFrame}
+          >
+            <TitleOverlay
+              text={item.clip.title}
+              presetId={item.clip.titlePresetId}
+              fps={spec.fps}
+              borderColor="black"
+              style={{
+                position: "absolute",
+                top: yPos + 2,
+                left: 90,
+                width: 700,
+                justifyContent: "flex-start",
+                textAlign: "left",
+              }}
+            />
+          </Sequence>
+        );
+      })}
+
       {/* Layer 3: Active Slot Highlighting (Yellow Number + Title) */}
       {spec.sequence.map((item) => {
         const yPos =
-          rankingStartY + (item.clip.slotIndex - 1) * rankingItemHeight;
+          rankingStartY + (item.clip.videoNumber - 1) * rankingItemHeight;
 
         // Only show if title exists
         if (!item.clip.title) return null;
@@ -506,7 +540,7 @@ export const RankingComposition: React.FC<{ spec: RenderSpec }> = ({
                   WebkitTextStroke: "3px black",
                 }}
               >
-                {item.clip.slotIndex}.
+                {item.clip.videoNumber}.
               </div>
             </AnimatedTitle>
 

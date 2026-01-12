@@ -125,7 +125,7 @@ export async function createRanking(req: Request, res: Response) {
         title: originalVideo?.title || [
           { text: `Video ${originalIndex + 1}`, color: "white", fontSize: 48 },
         ],
-        rank: originalIndex + 1,
+        rank: originalVideo?.videoNumber || originalIndex + 1, // Use immutable videoNumber
         trimStart: originalVideo?.trimStart,
         trimEnd: originalVideo?.trimEnd,
         // Include crop values for Rendering

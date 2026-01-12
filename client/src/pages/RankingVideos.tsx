@@ -277,11 +277,9 @@ export default function RankingVideos() {
         const oldIndex = items.findIndex((item) => item.id === active.id);
         const newIndex = items.findIndex((item) => item.id === over.id);
         const newOrder = arrayMove(items, oldIndex, newIndex);
-        // Sync slotIndex to new array order
-        return newOrder.map((clip, index) => ({
-          ...clip,
-          slotIndex: index + 1,
-        }));
+        // CRITICAL FIX: Do NOT update videoNumber (formerly slotIndex) based on new array order.
+        // Identity must remain attached to the specific video object.
+        return newOrder;
       });
       // Clear preview when order changes
       setPreviewState({ isGenerating: false, videoUrl: null, error: null });
@@ -292,11 +290,28 @@ export default function RankingVideos() {
     setVideoCount(count);
     const newVideos: EditedClip[] = [];
     for (let i = 0; i < count; i++) {
-      // Preserve existing video if it exists, otherwise create new
+      // Preserve existing video if it exists, otherwise create new with next available number
       const existing = videos[i];
       if (existing) {
-        newVideos.push({ ...existing, slotIndex: i + 1 });
+        newVideos.push(existing);
       } else {
+        // Find the maximum videoNumber currently in use to assign a unique next number
+        // const maxNumber = Math.max(0, ...videos.map(v => v.videoNumber));
+        // Simple 1-based indexing for new items is fine as long as we don't duplicate
+        // But if we reordered, i+1 might collide.
+        // However, standard use case for "changing count" is usually resetting or just appending.
+        // Let's stick to i+1 for now but assuming we are just appending to the list "visually".
+        // Actually, if we have 3 videos [ #2, #1, #3 ] and we change to 4.
+        // We want to add #4.
+        // The loop goes 0..3.
+        // i=0: videos[0] (#2) -> kept.
+        // i=1: videos[1] (#1) -> kept.
+        // i=2: videos[2] (#3) -> kept.
+        // i=3: new. What number? i+1 = 4. Safe.
+
+        // What if we reduce to 3?
+        // Loop 0..2.
+        // Keeps #2, #1, #3. (Rank 4 dropped if it was there). logic holds.
         newVideos.push(createEmptyEditedClip((i + 1).toString(), i + 1));
       }
     }
@@ -484,7 +499,7 @@ export default function RankingVideos() {
         videos.map((v) => ({
           url: v.src,
           title: v.title!,
-          videoNumber: v.slotIndex, // CRITICAL: immutable slot assignment for fixed positioning
+          videoNumber: v.videoNumber, // CRITICAL: immutable slot assignment for fixed positioning
           trimStart: v.trim?.start,
           trimEnd: v.trim?.end,
           // Include crop values for export
@@ -634,7 +649,7 @@ export default function RankingVideos() {
 
         newVideos.push({
           id: (i + 1).toString(),
-          slotIndex: i + 1,
+          videoNumber: i + 1,
           src: dbVideo.clip_url,
           duration: 0, // Unknown initially
           title: titleSegments,
@@ -832,7 +847,7 @@ export default function RankingVideos() {
                             hasFailed && "error"
                           )}
                         >
-                          #{video.slotIndex}
+                          #{video.videoNumber}
                         </Badge>
                         <div className="video-inputs flex-1">
                           <div className="flex items-center gap-2">
@@ -852,7 +867,7 @@ export default function RankingVideos() {
                                 "url-input flex-1",
                                 hasFailed && "error border-destructive"
                               )}
-                              placeholder={`Video ${video.slotIndex} URL (TikTok, Instagram, YouTube)`}
+                              placeholder={`Video ${video.videoNumber} URL (TikTok, Instagram, YouTube)`}
                               value={video.src}
                               onChange={(e) =>
                                 handleVideoChange(index, "url", e.target.value)
@@ -933,7 +948,7 @@ export default function RankingVideos() {
                         onChange={(segments) =>
                           handleVideoChange(index, "title", segments)
                         }
-                        placeholder={`Video ${video.slotIndex} Title`}
+                        placeholder={`Video ${video.videoNumber} Title`}
                         disabled={false}
                         size={52}
                       />

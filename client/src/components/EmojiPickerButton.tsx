@@ -54,6 +54,7 @@ export function EmojiPickerButton({
         type="button"
         className="emoji-picker-trigger"
         onClick={() => setIsOpen(!isOpen)}
+        onMouseDown={(e) => e.preventDefault()}
         disabled={disabled}
         title="Add emoji"
       >
