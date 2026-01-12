@@ -185,7 +185,29 @@ export function RichTextInput({
   };
 
   const handleEmojiInsert = (emoji: string) => {
-    editor?.chain().focus().insertContent(emoji).run();
+    if (!editor) return;
+
+    // Explicitly reconstruct active marks from the editor state
+    const marks = [];
+    if (editor.isActive("bold")) marks.push({ type: "bold" });
+    if (editor.isActive("italic")) marks.push({ type: "italic" });
+    if (editor.isActive("underline")) marks.push({ type: "underline" });
+
+    const styleAttrs = editor.getAttributes("textStyle");
+    if (styleAttrs && Object.keys(styleAttrs).length > 0) {
+      marks.push({ type: "textStyle", attrs: styleAttrs });
+    }
+
+    // Insert text node with the collected marks
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "text",
+        text: emoji,
+        marks: marks,
+      })
+      .run();
   };
 
   const toggleBorder = () => {

@@ -16,7 +16,7 @@ export function buildRenderSpec(
 ): RenderSpec {
   const sequence: RenderSpec["sequence"] = [];
   const slots: RenderSpec["slots"] = clips.map((c) => ({
-    slotIndex: c.slotIndex,
+    videoNumber: c.videoNumber,
     id: c.id,
   }));
   let currentStartFrame = 0;

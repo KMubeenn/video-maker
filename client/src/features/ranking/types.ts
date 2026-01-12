@@ -50,7 +50,7 @@ export type EditedClip = {
   title?: TextSegment[]; // Accommodate rich text title
   titlePresetId?: string; // [NEW] Reference to selected preset
   resolution?: { width: number; height: number }; // Native resolution for accurate rendering
-  slotIndex: number; // Display number (1-based)
+  videoNumber: number; // Immutable display number (1-based) assigned at creation
   // [NEW] Allow overriding preset context for specific clips if needed, though usually inferred
 };
 
@@ -67,7 +67,7 @@ export type RenderSpec = {
   fps: number;
   mainTitle?: MainTitleConfig;
   slots: Array<{
-    slotIndex: number;
+    videoNumber: number;
     id: string; // used for keying
   }>;
   sequence: Array<{
@@ -112,11 +112,11 @@ export interface PreviewProps {
  */
 export function createEmptyEditedClip(
   id: string,
-  slotIndex: number
+  videoNumber: number
 ): EditedClip {
   return {
     id,
-    slotIndex,
+    videoNumber,
     src: "",
     duration: 0,
     title: [{ text: "", color: "white", fontSize: 52 }],
