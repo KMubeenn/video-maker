@@ -99,36 +99,104 @@ export function VideoPreview({ url }: VideoPreviewProps) {
   };
 
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement }>({});
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodesRef = useRef<{ [key: string]: GainNode }>({});
 
-  // Sync Audio Playback
+  // Initialize Web Audio API for each audio element (only once per element)
+  useEffect(() => {
+    // Use setTimeout to ensure audio elements are mounted before initializing
+    const timer = setTimeout(() => {
+      editorState.audio.forEach((sound) => {
+        const audioEl = audioRefs.current[sound.id];
+
+        if (!audioEl || gainNodesRef.current[sound.id]) {
+          return; // Already initialized or element not ready
+        }
+
+        // Create AudioContext on first audio element
+        if (!audioContextRef.current) {
+          const AudioContextClass =
+            window.AudioContext ||
+            (
+              window as typeof window & {
+                webkitAudioContext: typeof AudioContext;
+              }
+            ).webkitAudioContext;
+          audioContextRef.current = new AudioContextClass();
+          console.log(
+            "🎹 AudioContext created. State:",
+            audioContextRef.current.state
+          );
+        }
+
+        try {
+          // Create MediaElementSource (can only be called ONCE per element)
+          const source =
+            audioContextRef.current.createMediaElementSource(audioEl);
+          const gainNode = audioContextRef.current.createGain();
+
+          // Connect: source -> gainNode -> destination
+          source.connect(gainNode);
+          gainNode.connect(audioContextRef.current.destination);
+
+          // Store the gain node for volume control
+          gainNodesRef.current[sound.id] = gainNode;
+
+          console.log(
+            "✅ Web Audio initialized for:",
+            sound.id,
+            "Volume will support 0-2 range"
+          );
+        } catch (e) {
+          console.error("❌ Failed to initialize Web Audio for", sound.id, e);
+        }
+      });
+
+      // Cleanup removed audio elements
+      const currentIds = new Set(editorState.audio.map((s) => s.id));
+      Object.keys(gainNodesRef.current).forEach((id) => {
+        if (!currentIds.has(id)) {
+          console.log("🧹 Cleaning up removed audio:", id);
+          delete gainNodesRef.current[id];
+        }
+      });
+    }, 100); // Small delay to ensure DOM is ready
+
+    return () => clearTimeout(timer);
+  }, [editorState.audio]);
+
+  // Sync Audio Playback & Volume
   useEffect(() => {
     editorState.audio.forEach((sound) => {
       const audioEl = audioRefs.current[sound.id];
       if (!audioEl) {
-        console.warn("Audio element not ref'd for", sound.id);
         return;
+      }
+
+      // Resume AudioContext on first user interaction (autoplay policy requirement)
+      if (audioContextRef.current?.state === "suspended") {
+        console.log("⏸️ AudioContext suspended, attempting resume...");
+        audioContextRef.current
+          .resume()
+          .then(() => console.log("▶️ AudioContext resumed successfully"))
+          .catch((e) => console.warn("❌ Failed to resume AudioContext:", e));
       }
 
       const absoluteStartTime = trimStart + sound.startTime;
       const relTime = currentTime - absoluteStartTime;
-
-      console.log("Audio Debug:", {
-        id: sound.id,
-        file: sound.file,
-        relTime,
-        isPlaying,
-        paused: audioEl.paused,
-        duration: audioEl.duration,
-      });
-
-      // Allow play if starts in valid range. If duration is NaN (loading), allow it (browser handles checks).
       const duration = isNaN(audioEl.duration) ? Infinity : audioEl.duration;
 
+      // Playback control
       if (relTime >= 0 && relTime < duration && isPlaying) {
         if (audioEl.paused) {
-          audioEl
-            .play()
-            .catch((e) => console.error("Audio Play Error:", sound.file, e));
+          audioEl.play().catch((e) => {
+            console.error("❌ Audio Play Error:", sound.file, e);
+            // Try resuming context again if play failed
+            if (audioContextRef.current?.state === "suspended") {
+              console.log("⏸️ Retrying AudioContext resume after play error");
+              audioContextRef.current.resume();
+            }
+          });
         }
         // Sync time if drifted
         if (Math.abs(audioEl.currentTime - relTime) > 0.2) {
@@ -144,10 +212,30 @@ export function VideoPreview({ url }: VideoPreviewProps) {
         }
       }
 
-      // Volume
-      audioEl.volume = sound.volume ?? 1;
+      // Volume control: Use GainNode for full 0-2 range
+      const volume = sound.volume ?? 1;
+      const gainNode = gainNodesRef.current[sound.id];
+
+      if (gainNode) {
+        // GainNode handles the full volume range (0-2)
+        gainNode.gain.value = volume;
+        // Set HTML element volume to 1.0 (it's now routed through Web Audio API)
+        audioEl.volume = 1.0;
+      } else {
+        // Fallback if Web Audio not initialized yet: clamp to valid range
+        audioEl.volume = Math.min(volume, 1);
+      }
     });
   }, [currentTime, isPlaying, editorState.audio, trimStart]);
+
+  // Cleanup AudioContext on unmount
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
 
   const togglePlay = () => {
     setPlaybackState(!isPlaying);
@@ -253,11 +341,19 @@ export function VideoPreview({ url }: VideoPreviewProps) {
         <audio
           key={sound.id}
           ref={(el) => {
-            if (el) audioRefs.current[sound.id] = el;
-            else delete audioRefs.current[sound.id];
+            if (el) {
+              audioRefs.current[sound.id] = el;
+              console.log(`📎 Audio element ref set for ${sound.id}`);
+            } else {
+              delete audioRefs.current[sound.id];
+            }
           }}
           src={sound.file}
           preload="auto"
+          crossOrigin="anonymous"
+          onLoadedMetadata={() => {
+            console.log(`📊 Audio metadata loaded for ${sound.id}`);
+          }}
         />
       ))}
     </div>
