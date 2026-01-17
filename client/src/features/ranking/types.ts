@@ -43,7 +43,7 @@ export type AudioTrack = {
 export type EditedClip = {
   id: string;
   src: string;
-  duration: number; // Duration of the source clip in seconds (0 if unknown/default)
+  duration?: number; // Duration of the source clip in seconds (undefined if unknown/needs fetching)
   trim?: { start: number; end: number };
   crop?: { x: number; y: number; width: number; height: number };
   audio?: AudioTrack[]; // Accommodate multiple audio tracks (meme sounds)
@@ -112,13 +112,12 @@ export interface PreviewProps {
  */
 export function createEmptyEditedClip(
   id: string,
-  videoNumber: number
+  videoNumber: number,
 ): EditedClip {
   return {
     id,
     videoNumber,
     src: "",
-    duration: 0,
     title: [{ text: "", color: "white", fontSize: 52 }],
     audio: [],
   };

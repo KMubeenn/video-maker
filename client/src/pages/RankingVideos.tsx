@@ -94,7 +94,7 @@ export default function RankingVideos() {
   const [height, setHeight] = useState(1920);
   const [error, setError] = useState("");
   const [failedVideoIndices, setFailedVideoIndices] = useState<Set<number>>(
-    new Set()
+    new Set(),
   );
 
   // Drag-and-drop sensors
@@ -102,7 +102,7 @@ export default function RankingVideos() {
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   // Track which videos are currently being resolved
@@ -110,7 +110,7 @@ export default function RankingVideos() {
 
   // Track failed resolutions to prevent infinite retries
   const [failedResolutions, setFailedResolutions] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
 
   // Metadata fetching effect
@@ -138,7 +138,7 @@ export default function RankingVideos() {
                 console.log(
                   `[Frontend] Video ${
                     index + 1
-                  } previously failed resolution, skipping.`
+                  } previously failed resolution, skipping.`,
                 );
                 return;
               }
@@ -146,7 +146,7 @@ export default function RankingVideos() {
               // Avoid re-resolving if already in progress or already looks local (localhost)
               if (resolvingIndices.includes(index)) {
                 console.log(
-                  `[Frontend] Video ${index + 1} is already resolving.`
+                  `[Frontend] Video ${index + 1} is already resolving.`,
                 );
                 return;
               }
@@ -155,7 +155,7 @@ export default function RankingVideos() {
                 console.log(
                   `[Frontend] Video ${
                     index + 1
-                  } seems to be already local/resolved.`
+                  } seems to be already local/resolved.`,
                 );
                 // Proceed to metadata check below
               } else {
@@ -163,7 +163,7 @@ export default function RankingVideos() {
                   console.log(
                     `[Frontend] Triggering resolution for video ${index + 1}: ${
                       video.src
-                    }`
+                    }`,
                   );
 
                   // Mark as resolving
@@ -172,20 +172,20 @@ export default function RankingVideos() {
                   const response = await resolveVideoUrl(video.src, index);
                   console.log(
                     `[Frontend] Resolution response for ${index + 1}:`,
-                    response
+                    response,
                   );
 
                   if (response.success && response.data.resolvedUrl) {
                     console.log(
                       `[Frontend] Resolved ${index + 1} to ${
                         response.data.resolvedUrl
-                      }`
+                      }`,
                     );
 
                     // Update with resolved URL
                     // Get metadata for the NEW resolved URL
                     const meta = await getVideoMetadata(
-                      response.data.resolvedUrl
+                      response.data.resolvedUrl,
                     );
 
                     newVideos[index] = {
@@ -199,14 +199,14 @@ export default function RankingVideos() {
                 } catch (err) {
                   console.error(
                     `[Frontend] Failed to resolve video ${index + 1}`,
-                    err
+                    err,
                   );
                   // Mark as failed to prevent infinite retries
                   setFailedResolutions((prev) => new Set(prev).add(video.src));
                 } finally {
                   // Remove from resolving list
                   setResolvingIndices((prev) =>
-                    prev.filter((i) => i !== index)
+                    prev.filter((i) => i !== index),
                   );
                 }
                 return; // Don't fall through to standard metadata check for this iteration
@@ -216,7 +216,7 @@ export default function RankingVideos() {
             // Standard direct file or already resolved
             try {
               console.log(
-                `[Frontend] Fetching metadata for direct/resolved link: ${video.src}`
+                `[Frontend] Fetching metadata for direct/resolved link: ${video.src}`,
               );
               const meta = await getVideoMetadata(video.src);
               newVideos[index] = {
@@ -228,7 +228,7 @@ export default function RankingVideos() {
             } catch (err) {
               console.error(
                 `[Frontend] Failed to load metadata for video ${index + 1}`,
-                err
+                err,
               );
               // Set default duration to avoid infinite loop
               newVideos[index] = {
@@ -238,7 +238,7 @@ export default function RankingVideos() {
               hasUpdates = true;
             }
           }
-        })
+        }),
       );
 
       if (hasUpdates) {
@@ -254,7 +254,7 @@ export default function RankingVideos() {
   const fps = 30;
   const spec = useMemo(
     () => buildRenderSpec(videos, mainTitle, mainTitlePresetId, fps),
-    [videos, mainTitle, mainTitlePresetId]
+    [videos, mainTitle, mainTitlePresetId],
   );
   const durationInFrames = useMemo(() => {
     return (
@@ -325,11 +325,28 @@ export default function RankingVideos() {
   const handleVideoChange = (
     index: number,
     field: "url" | "title" | "preset",
-    value: string | TextSegment[]
+    value: string | TextSegment[],
   ) => {
     const newVideos = [...videos];
     if (field === "url") {
-      newVideos[index] = { ...newVideos[index], src: value as string };
+      const oldUrl = newVideos[index].src;
+
+      // Reset video metadata when URL changes to trigger re-fetch
+      newVideos[index] = {
+        ...newVideos[index],
+        src: value as string,
+        duration: undefined, // Reset duration to trigger metadata fetching
+        resolution: undefined, // Reset resolution to trigger metadata fetching
+      };
+
+      // Clear the old URL from failed resolutions cache
+      if (oldUrl && oldUrl !== value) {
+        setFailedResolutions((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(oldUrl);
+          return newSet;
+        });
+      }
     } else if (field === "preset") {
       newVideos[index] = {
         ...newVideos[index],
@@ -353,7 +370,7 @@ export default function RankingVideos() {
 
   // Editor State
   const [editingVideoIndex, setEditingVideoIndex] = useState<number | null>(
-    null
+    null,
   );
 
   const [editorUrl, setEditorUrl] = useState<string | null>(null);
@@ -382,7 +399,7 @@ export default function RankingVideos() {
     cropHeight?: number,
     memeSounds?: VideoMemeSound[],
     nativeWidth?: number,
-    nativeHeight?: number
+    nativeHeight?: number,
   ) => {
     if (editingVideoIndex === null) return;
 
@@ -529,7 +546,7 @@ export default function RankingVideos() {
                 ?.titlePresetId,
             },
           })),
-        }
+        },
       );
       // Extract failed video indices from warnings
       const failedIndices = new Set<number>();
@@ -566,12 +583,12 @@ export default function RankingVideos() {
   // Auto-populate from database
   const [showAutoPopulateDialog, setShowAutoPopulateDialog] = useState(false);
   const [availableVideos, setAvailableVideos] = useState<VideoLibraryVideo[]>(
-    []
+    [],
   );
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>("all");
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
 
   const loadAvailableVideos = async () => {
@@ -588,7 +605,7 @@ export default function RankingVideos() {
           const teamVideoPromises = teams
             .filter((team: Team) => team.id) // Only process teams with IDs
             .map((team: Team) =>
-              videoLibraryApi.list(team.id!).catch(() => [])
+              videoLibraryApi.list(team.id!).catch(() => []),
             );
           const allTeamVideos = await Promise.all(teamVideoPromises);
           teamVideos = allTeamVideos.flat();
@@ -601,7 +618,7 @@ export default function RankingVideos() {
       // Combine and deduplicate by ID
       const allVideos = [...userVideos, ...teamVideos];
       const uniqueVideos = Array.from(
-        new Map(allVideos.map((v) => [v.id, v])).values()
+        new Map(allVideos.map((v) => [v.id, v])).values(),
       );
 
       setAvailableVideos(uniqueVideos);
@@ -626,8 +643,8 @@ export default function RankingVideos() {
     if (selectedTagFilter && selectedTagFilter !== "all") {
       filteredVideos = availableVideos.filter((v) =>
         v.tags?.some((tag) =>
-          tag.toLowerCase().includes(selectedTagFilter.toLowerCase())
-        )
+          tag.toLowerCase().includes(selectedTagFilter.toLowerCase()),
+        ),
       );
     }
 
@@ -651,7 +668,6 @@ export default function RankingVideos() {
           id: (i + 1).toString(),
           videoNumber: i + 1,
           src: dbVideo.clip_url,
-          duration: 0, // Unknown initially
           title: titleSegments,
           titlePresetId: "simple-highlight", // Default clip preset
           audio: [],
@@ -659,7 +675,7 @@ export default function RankingVideos() {
       } else {
         // Keep existing video or create empty one
         newVideos.push(
-          videos[i] || createEmptyEditedClip((i + 1).toString(), i + 1)
+          videos[i] || createEmptyEditedClip((i + 1).toString(), i + 1),
         );
       }
     }
@@ -670,7 +686,7 @@ export default function RankingVideos() {
 
   // Get unique tags from available videos
   const allTags = Array.from(
-    new Set(availableVideos.flatMap((v) => v.tags || []))
+    new Set(availableVideos.flatMap((v) => v.tags || [])),
   ).sort();
 
   // Filter videos for display in dialog
@@ -678,8 +694,8 @@ export default function RankingVideos() {
     selectedTagFilter && selectedTagFilter !== "all"
       ? availableVideos.filter((v) =>
           v.tags?.some((tag) =>
-            tag.toLowerCase().includes(selectedTagFilter.toLowerCase())
-          )
+            tag.toLowerCase().includes(selectedTagFilter.toLowerCase()),
+          ),
         )
       : availableVideos;
 
@@ -774,7 +790,7 @@ export default function RankingVideos() {
                   variant={videoCount === count ? "default" : "outline"}
                   className={cn(
                     "count-btn flex flex-col h-auto py-4",
-                    videoCount === count && "active"
+                    videoCount === count && "active",
                   )}
                   onClick={() => handleVideoCountChange(count)}
                   disabled={false}
@@ -818,7 +834,7 @@ export default function RankingVideos() {
                 {videos.map((video, index) => {
                   const hasFailed = failedVideoIndices.has(index);
                   const failureInfo = previewState.warnings?.failedVideos.find(
-                    (f) => f.index === index
+                    (f) => f.index === index,
                   );
 
                   return (
@@ -827,7 +843,7 @@ export default function RankingVideos() {
                       id={video.id}
                       className={cn(
                         "video-input-group mb-4 relative",
-                        hasFailed && "has-error"
+                        hasFailed && "has-error",
                       )}
                     >
                       {/* Resolving Overlay */}
@@ -844,7 +860,7 @@ export default function RankingVideos() {
                           variant={hasFailed ? "destructive" : "default"}
                           className={cn(
                             "rank-badge min-w-10 h-10 text-lg font-bold flex items-center justify-center shrink-0",
-                            hasFailed && "error"
+                            hasFailed && "error",
                           )}
                         >
                           #{video.videoNumber}
@@ -855,7 +871,7 @@ export default function RankingVideos() {
                               <div
                                 className={cn(
                                   "input-icon flex items-center justify-center",
-                                  hasFailed && "error"
+                                  hasFailed && "error",
                                 )}
                               >
                                 "⚠️"
@@ -865,7 +881,7 @@ export default function RankingVideos() {
                               type="url"
                               className={cn(
                                 "url-input flex-1",
-                                hasFailed && "error border-destructive"
+                                hasFailed && "error border-destructive",
                               )}
                               placeholder={`Video ${video.videoNumber} URL (TikTok, Instagram, YouTube)`}
                               value={video.src}
@@ -978,7 +994,7 @@ export default function RankingVideos() {
                 }
                 className={cn(
                   "dimension-btn flex flex-col h-auto py-4",
-                  width === 1080 && height === 1920 && "active"
+                  width === 1080 && height === 1920 && "active",
                 )}
                 onClick={() => {
                   setWidth(1080);
@@ -996,7 +1012,7 @@ export default function RankingVideos() {
                 }
                 className={cn(
                   "dimension-btn flex flex-col h-auto py-4",
-                  width === 1920 && height === 1080 && "active"
+                  width === 1920 && height === 1080 && "active",
                 )}
                 onClick={() => {
                   setWidth(1920);
@@ -1014,7 +1030,7 @@ export default function RankingVideos() {
                 }
                 className={cn(
                   "dimension-btn flex flex-col h-auto py-4",
-                  width === 1080 && height === 1080 && "active"
+                  width === 1080 && height === 1080 && "active",
                 )}
                 onClick={() => {
                   setWidth(1080);
@@ -1140,7 +1156,7 @@ export default function RankingVideos() {
       {editingVideoIndex !== null &&
         (console.log(
           "[RankingVideos] Rendering VideoEditor with index:",
-          editingVideoIndex
+          editingVideoIndex,
         ),
         (
           <VideoEditor
@@ -1241,7 +1257,7 @@ export default function RankingVideos() {
                     className={cn(
                       "flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors",
                       selectedVideoIds.has(video.id || "") &&
-                        "bg-accent border-primary"
+                        "bg-accent border-primary",
                     )}
                     onClick={() => {
                       if (!video.id) return;
@@ -1262,7 +1278,7 @@ export default function RankingVideos() {
                       className={cn(
                         "w-5 h-5 border-2 rounded flex items-center justify-center",
                         selectedVideoIds.has(video.id || "") &&
-                          "bg-primary border-primary"
+                          "bg-primary border-primary",
                       )}
                     >
                       {selectedVideoIds.has(video.id || "") && (
