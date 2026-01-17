@@ -12,7 +12,7 @@ export function buildRenderSpec(
   clips: EditedClip[],
   mainTitle: TextSegment[],
   mainTitlePresetId?: string,
-  fps: number = 30
+  fps: number = 30,
 ): RenderSpec {
   const sequence: RenderSpec["sequence"] = [];
   const slots: RenderSpec["slots"] = clips.map((c) => ({
@@ -32,7 +32,7 @@ export function buildRenderSpec(
 
   for (const clip of clips) {
     // Determine duration in seconds
-    let durationSec = clip.duration;
+    let durationSec = clip.duration ?? 0; // Default to 0 if not yet fetched
 
     // If trimmed, use trim duration
     if (clip.trim) {
@@ -44,7 +44,7 @@ export function buildRenderSpec(
     // If duration is 0 (e.g. empty placeholder), it might be 0 frames
     const durationFrames = Math.max(
       durationSec > 0 ? 1 : 0,
-      Math.round(durationSec * fps)
+      Math.round(durationSec * fps),
     );
 
     if (durationFrames > 0) {
