@@ -16,3 +16,5 @@ outputs/
 .env
 
 cookies.txt
+# Editor / AI debug artifacts
+.cursor/
